@@ -1,0 +1,22 @@
+[registry]
+base_url = "https://wt.ioa.pub/registry-server"
+
+[auth]
+user_token_file = "./.acps-cli/tokens/registry-user.json"
+admin_token_file = "./.acps-cli/tokens/registry-admin.json"
+
+[ca]
+base_url = "https://wt.ioa.pub/ca-server"
+account_keys_dir = "./secrets/acps/account-keys"
+private_keys_dir = "./secrets/acps/private-keys"
+certs_dir = "./secrets/acps/certs"
+csr_dir = "./secrets/acps/csrs"
+trust_bundle_path = "./secrets/acps/trust-bundle.pem"
+
+[discovery]
+base_url = "https://wt.ioa.pub/discovery"
+
+# 梧桐公开文档未给出统一的 Monitor 地址。拿到赛事方分配地址后再启用：
+# [monitor]
+# base_url = "https://<赛事方提供的-monitor-host>"
+# api_prefix = "/amp/v1"

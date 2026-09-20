@@ -42,6 +42,21 @@ class LLMCompletionRequest(BaseModel):
         return self
 
 
+class LLMConnectionTestRequest(BaseModel):
+    """Ephemeral BYOK configuration used only for one UI connection test."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_url: str = Field(min_length=8, max_length=500)
+    model: str = Field(min_length=1, max_length=200)
+    api_key: SecretStr | None = Field(default=None, max_length=10_000)
+    prompt: str = Field(
+        default="Reply with exactly: CONNECTED",
+        min_length=1,
+        max_length=2000,
+    )
+
+
 class LLMUsage(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
@@ -141,6 +156,9 @@ def _validate_openai_compatible_settings(settings: LLMSettings) -> None:
     parsed = urlsplit(settings.base_url)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise LLMConfigurationError("LLM base URL must be an absolute HTTP(S) URL")
+    loopback_hosts = {"127.0.0.1", "localhost", "::1"}
+    if parsed.scheme == "http" and parsed.hostname not in loopback_hosts:
+        raise LLMConfigurationError("non-loopback LLM base URL must use HTTPS")
     if parsed.username or parsed.password:
         raise LLMConfigurationError("credentials must not be embedded in LLM base URL")
     if parsed.query or parsed.fragment:
@@ -171,6 +189,18 @@ def _message_content(value: Any) -> str:
         if parts:
             return "\n".join(parts)
     raise LLMProviderError("upstream response has no text content")
+
+
+def _transport_failure(exc: httpx.TransportError, *, target: str) -> LLMProviderError:
+    if isinstance(exc, httpx.ConnectTimeout):
+        detail = "connection timed out; check firewall, proxy, and provider availability"
+    elif isinstance(exc, httpx.ConnectError):
+        detail = "connection failed; check outbound network, DNS, proxy/firewall, and provider URL"
+    elif isinstance(exc, httpx.ReadTimeout):
+        detail = "response timed out; increase timeout or retry after the provider recovers"
+    else:
+        detail = f"transport failed: {type(exc).__name__}"
+    return LLMProviderError(f"{target} {detail}")
 
 
 class OpenAICompatibleClient:
@@ -229,9 +259,7 @@ class OpenAICompatibleClient:
                     response = await client.post("chat/completions", json=payload)
                 except httpx.TransportError as exc:
                     if attempt >= self.settings.retries:
-                        raise LLMProviderError(
-                            f"upstream transport failed: {type(exc).__name__}"
-                        ) from exc
+                        raise _transport_failure(exc, target="upstream") from exc
                     await asyncio.sleep(_retry_delay(None, attempt))
                     continue
                 if response.status_code == 429 or response.status_code >= 500:
@@ -328,6 +356,4 @@ class LLMGatewayClient:
                     f"LLM gateway returned HTTP {exc.response.status_code}"
                 ) from exc
             except httpx.TransportError as exc:
-                raise LLMProviderError(
-                    f"LLM gateway transport failed: {type(exc).__name__}"
-                ) from exc
+                raise _transport_failure(exc, target="LLM gateway") from exc

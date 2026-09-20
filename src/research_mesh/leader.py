@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
+import ssl
 import time
 import uuid
 from collections.abc import Callable
@@ -11,8 +13,11 @@ import httpx
 from acps_sdk.aip.aip_base_model import StructuredDataItem, TaskResult, TaskState
 from acps_sdk.aip.aip_rpc_client import AipRpcClient
 
-from .registry import LocalCapabilityRegistry
+from .config import RuntimeSettings, runtime_settings
+from .observability import AmpRuntime
+from .registry import CapabilityRegistry
 from .schemas import AgentDescriptor, ResearchReport, ResearchRequest, TraceEvent
+from .tls import build_client_ssl_context
 
 
 class AgentInputRequired(RuntimeError):
@@ -29,18 +34,35 @@ TransportFactory = Callable[[AgentDescriptor], httpx.AsyncBaseTransport]
 class ResearchLeader:
     def __init__(
         self,
-        registry: LocalCapabilityRegistry,
+        registry: CapabilityRegistry,
         *,
-        leader_aic: str = "local.research-mesh.leader",
+        leader_aic: str | None = None,
         transport_factory: TransportFactory | None = None,
+        settings: RuntimeSettings | None = None,
+        ssl_context: ssl.SSLContext | None = None,
+        amp_runtime: AmpRuntime | None = None,
         poll_interval: float = 0.05,
         max_polls: int = 100,
     ):
+        self.settings = settings or runtime_settings()
         self.registry = registry
-        self.leader_aic = leader_aic
+        self.leader_aic = leader_aic or self.settings.leader_aic
         self.transport_factory = transport_factory
+        material = self.settings.client_tls_material()
+        self.ssl_context = ssl_context or (
+            build_client_ssl_context(material)
+            if self.settings.mtls_enabled and material is not None
+            else None
+        )
+        self.amp_runtime = amp_runtime or AmpRuntime.disabled()
         self.poll_interval = poll_interval
         self.max_polls = max_polls
+
+    async def _require_agent(self, skill: str, query: str) -> AgentDescriptor:
+        result = self.registry.require(skill, query)
+        if inspect.isawaitable(result):
+            return await result
+        return result
 
     async def _run_agent(
         self,
@@ -51,14 +73,20 @@ class ResearchLeader:
         query: str,
         payload: dict[str, Any],
     ) -> tuple[dict[str, Any], TraceEvent]:
-        agent = self.registry.require(skill, query)
+        agent = await self._require_agent(skill, query)
         task_id = f"task-{agent.slug}-{uuid.uuid4()}"
         transport = self.transport_factory(agent) if self.transport_factory else None
         client = AipRpcClient(
             partner_url=agent.endpoint,
             leader_id=self.leader_aic,
+            ssl_context=self.ssl_context,
             transport=transport,
-            identity_binding_enabled=False,
+            access_emitter=self.amp_runtime.access,
+            callee_aic=agent.aic,
+            caller_service="research-mesh-leader",
+            callee_service=f"research-mesh-{agent.slug}",
+            expected_partner_aic=agent.aic,
+            identity_binding_enabled=self.settings.identity_binding_enabled,
         )
         started = time.perf_counter()
         try:

@@ -109,6 +109,9 @@ def main() -> None:
                 raise RuntimeError(f"{slug} returned an empty ACS")
         wait_ready("http://127.0.0.1:8000/health")
         wait_ready("http://127.0.0.1:8020/health")
+        frontend = httpx.get("http://127.0.0.1:8000/", timeout=3)
+        assert frontend.status_code == 200
+        assert 'id="research-form"' in frontend.text
         llm_health = httpx.get("http://127.0.0.1:8020/health", timeout=3).json()
         assert llm_health["status"] == "disabled"
 
@@ -122,7 +125,7 @@ def main() -> None:
         assert report["status"] == "completed"
         assert len(report["provenance"]) == 4
         print(
-            "independent-process smoke: 4 AIP calls + LLM gateway health completed"
+            "independent-process smoke: UI + 4 AIP calls + LLM gateway completed"
         )
     finally:
         for process in reversed(processes):

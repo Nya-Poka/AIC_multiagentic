@@ -5,7 +5,7 @@
 
 ```text
 研究请求
-  -> 本地能力发现
+  -> 本地能力发现或梧桐 ADP 在线发现
   -> 文献 / 实验 / 分析 Partner 并行执行
   -> 规范复核 Partner
   -> 带 AIP 任务轨迹的结构化研究报告
@@ -24,10 +24,13 @@
 - 文献 Agent 通过 Crossref 官方 REST API 检索真实书目数据；
 - 结构化产物、规范复核与 provenance 轨迹；
 - FastAPI 接口和自动化测试。
+- Leader 本身可通过 `/rpc` 被其他智能体按 AIP 调用；
+- 梧桐平台模式、五套独立 AIC、mTLS、身份绑定和 AMP 日志；
+- 五份 ACS v02.02 生成器与平台就绪检查。
 
-当前能力发现是明确标注的本地开发适配器，不等同于官方 ADP。身份绑定也仅在本地
-HTTP测试中关闭。接入梧桐平台时需要替换为官方 Registry/Discovery、平台分配的 AIC、
-CAI 证书和 mTLS。
+本地模式使用确定性注册表并关闭身份绑定；平台模式会调用官方 ADP `discover`，使用
+ACPs CA 签发证书执行 mTLS，并强制绑定 peer certificate AIC 与 AIP `senderId`。平台账号、
+人工审核、正式 AIC、证书签发和公网域名仍必须由参赛者本人取得。
 
 ## 环境
 
@@ -49,6 +52,26 @@ CAI 证书和 mTLS。
 ```
 
 输出包含四个 Partner 的结果和每次 AIP 调用的任务ID、最终状态及耗时。
+
+## 简洁 Web 前端
+
+一条命令启动 Leader、四个 Partner 和 LLM Gateway，然后打开
+`http://127.0.0.1:8000/`：
+
+```powershell
+.\scripts\run-local.ps1
+```
+
+按 `Ctrl+C` 会统一关闭全部六个服务。
+
+页面提供两项最小能力：
+
+- 填写研究问题、文献检索词、数值数据和约束，运行完整四 Agent 闭环；
+- 填写 OpenAI-compatible 接口地址、模型 ID 和 API Key，进行一次 LLM 连接测试。
+
+API Key 使用密码框，不写入 localStorage、文件或服务端配置，只在连接测试请求期间存在。
+非本机的 HTTP 上游会被拒绝，远程模型接口必须使用 HTTPS。浏览器方案仅用于本机开发；
+正式部署还需要 HTTPS、身份认证、CSRF 防护和严格的上游地址白名单。
 
 ## 真实文献检索
 
@@ -113,6 +136,11 @@ $env:RESEARCH_MESH_LLM_GATEWAY_TOKEN = '内部网关的强随机令牌'
 临时切换模型，并限制最大输出 token。部署到非本机网络时必须设置 Gateway Token，并在
 入口增加 TLS 和访问控制。Prompt 会发送给所配置的上游服务，不应包含无权外发的数据。
 
+DeepSeek 当前可直接填写 `https://api.deepseek.com` 和模型 `deepseek-flash`。如果页面返回
+`connection failed`，说明请求尚未到达模型鉴权阶段，应先检查运行 API 服务的进程是否能
+访问公网、DNS、系统代理和防火墙；错误不是由 API Key 格式引起的。官方调用示例见
+[DeepSeek First API Call](https://api-docs.deepseek.com/quick_start/pricing/)。
+
 ## 运行六个独立服务
 
 分别打开六个 PowerShell 终端：
@@ -130,7 +158,7 @@ $env:RESEARCH_MESH_LLM_GATEWAY_TOKEN = '内部网关的强随机令牌'
 
 | 服务 | 端口 | 对外接口 |
 | --- | ---: | --- |
-| Leader | 8000 | `/research/run`、`/dev/agents` |
+| Leader | 8000 | `/rpc`、`/acs`、`/research/run`、`/dev/agents` |
 | Literature Partner | 8011 | `/rpc`、`/acs`、`/health` |
 | Experiment Partner | 8012 | `/rpc`、`/acs`、`/health` |
 | Analysis Partner | 8013 | `/rpc`、`/acs`、`/health` |
@@ -151,6 +179,23 @@ $env:RESEARCH_MESH_LLM_GATEWAY_TOKEN = '内部网关的强随机令牌'
 Partner 地址可通过 `.env.example` 中的环境变量覆盖，便于后续改为容器地址或
 梧桐平台服务地址。
 
+## 梧桐平台接入
+
+代码已包含 Registry/CA 外的所有运行时接入组件。完整的 ACS 生成、注册审核、AIC 同步、
+clientAuth/serverAuth 证书签发、平台模式配置、启动和排障命令见：
+
+- [梧桐 ACPs 接入手册](docs/WUTONG_INTEGRATION.md)
+- [ACPs 部署资产说明](deploy/acps/README.md)
+
+生成五份待注册 ACS 并检查平台配置：
+
+```powershell
+.\scripts\generate-acps.ps1 -BaseUrl 'https://agents.example.edu.cn'
+.\scripts\check-platform.ps1
+```
+
+预检在账号尚未审核、AIC 未同步或证书未签发时失败是预期行为；输出会逐项告诉你缺什么。
+
 ## 测试
 
 ```powershell
@@ -163,11 +208,9 @@ Partner 地址可通过 `.env.example` 中的环境变量覆盖，便于后续�
 返回一条文献；第三条启动六个操作系统进程，验证健康检查、ACS、LLM Gateway、跨进程
 AIP 调用和完整四 Agent 闭环，结束后会自动清理进程。
 
-## 下一步
+## 仍可扩展的能力
 
-1. 用当前四份本地 ACS 申请平台 AIC，并补齐正式 provider、安全方案和公网端点；
-2. 用官方 ADP `discovery-server` 替换 `LocalCapabilityRegistry`；
-3. 配置 CAI 证书、mTLS 和身份绑定；
-4. 让实验设计和报告综合 Agent 按任务策略调用统一 LLM Gateway；
-5. 增加全文获取、第二文献源交叉核验与受限代码执行沙箱；
-6. 增加故障重发现、基线实验和梧桐平台访问证据。
+1. 让实验设计和报告综合 Agent 按任务策略调用统一 LLM Gateway；
+2. 增加全文获取、第二文献源交叉核验与受限代码执行沙箱；
+3. 增加 ADP 多候选故障重发现、基线实验和比赛演示证据自动归档；
+4. 按平台运维约定把本地 AMP NDJSON 接入 Fluent Bit/Kafka/Monitor。

@@ -3,5 +3,4 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'import-env.ps1')
 $env:PYTHONUTF8 = '1'
 $env:PYTHONPATH = Join-Path $ProjectRoot 'src'
-$env:RESEARCH_MESH_PORT = '8000'
-& (Join-Path $ProjectRoot '.venv\Scripts\python.exe') -m research_mesh.api
+& (Join-Path $ProjectRoot '.venv\Scripts\python.exe') (Join-Path $ProjectRoot 'scripts\run-local.py')

@@ -8,3 +8,12 @@ dist/
 build/
 *.egg-info/
 artifacts/
+.acps-cli/
+secrets/
+deploy/acps/generated/
+eab*.json
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx

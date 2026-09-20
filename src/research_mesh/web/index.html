@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Research Mesh 多智能体科研协作控制台">
+  <title>Research Mesh / 科研协作控制台</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23111'/%3E%3Cpath d='M14 50V14h19c11 0 17 5 17 15 0 6-3 10-8 12l10 9H39l-8-8h-5v8zm12-18h7c4 0 6-1 6-4s-2-4-6-4h-7z' fill='%23fff'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="/assets/app.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <p class="eyebrow">RESEARCH MESH / LOCAL CONSOLE</p>
+    <div class="title-grid">
+      <h1>科研协作<br><span>控制台</span></h1>
+      <p class="intro">用一个页面启动文献检索、实验设计、数据分析与规范复核。结果保留 Agent、任务状态与来源轨迹。</p>
+    </div>
+    <div class="red-rule" aria-hidden="true"></div>
+  </header>
+
+  <main>
+    <nav class="tabs" aria-label="控制台区域">
+      <button class="tab active" type="button" data-target="research-panel">01 / 运行研究</button>
+      <button class="tab" type="button" data-target="llm-panel">02 / LLM 设置</button>
+    </nav>
+
+    <section id="research-panel" class="panel active" aria-labelledby="research-title">
+      <div class="section-head">
+        <p class="section-no">01</p>
+        <div>
+          <h2 id="research-title">运行最小科研闭环</h2>
+          <p>必填项保持最少；数值数据支持逗号、空格或换行分隔。</p>
+        </div>
+      </div>
+
+      <form id="research-form" class="form-grid">
+        <label class="field field-wide">
+          <span>研究问题 *</span>
+          <textarea id="question" required minlength="8" rows="3">学习时间与小规模测验成绩之间是否存在值得进一步研究的关系？</textarea>
+        </label>
+
+        <label class="field field-wide">
+          <span>研究目标 *</span>
+          <textarea id="objective" required minlength="8" rows="3">形成一个可复核的初步实验方案，并对示例数据完成描述性统计。</textarea>
+        </label>
+
+        <label class="field field-wide">
+          <span>英文文献检索词</span>
+          <input id="literature-query" value="study time academic performance test scores">
+        </label>
+
+        <label class="field">
+          <span>指标名称</span>
+          <input id="measure" value="测验成绩">
+        </label>
+
+        <label class="field">
+          <span>单位</span>
+          <input id="unit" value="分">
+        </label>
+
+        <label class="field field-wide">
+          <span>数值数据 *</span>
+          <textarea id="values" required rows="3">72, 75, 78, 81, 83, 88, 91</textarea>
+          <small id="values-help">至少输入两个有限数字。</small>
+        </label>
+
+        <label class="field field-wide">
+          <span>研究约束</span>
+          <textarea id="constraints" rows="3">仅进行描述性统计
+不得声称因果关系
+所有结论保留证据来源</textarea>
+        </label>
+
+        <label class="field compact">
+          <span>文献数量</span>
+          <input id="max-results" type="number" min="1" max="20" value="5">
+        </label>
+
+        <div class="actions field-wide">
+          <button class="primary" type="submit">运行四 Agent 闭环</button>
+          <span id="research-status" class="status" role="status" aria-live="polite">等待输入</span>
+        </div>
+      </form>
+    </section>
+
+    <section id="llm-panel" class="panel" aria-labelledby="llm-title" hidden>
+      <div class="section-head">
+        <p class="section-no">02</p>
+        <div>
+          <h2 id="llm-title">连接 OpenAI-compatible 模型</h2>
+          <p>密钥只随本次测试请求发送，不写入文件、localStorage 或服务端配置。</p>
+        </div>
+      </div>
+
+      <form id="llm-form" class="form-grid" autocomplete="off">
+        <label class="field field-wide">
+          <span>接口地址 *</span>
+          <input id="llm-base-url" type="url" required value="http://127.0.0.1:11434/v1" spellcheck="false">
+          <small>DeepSeek：填写 https://api.deepseek.com；本地 Ollama 使用上面的 /v1 地址。</small>
+        </label>
+
+        <label class="field">
+          <span>模型 ID *</span>
+          <input id="llm-model" required placeholder="例如：deepseek-flash" spellcheck="false">
+        </label>
+
+        <label class="field">
+          <span>API Key</span>
+          <span class="secret-input">
+            <input id="llm-api-key" type="password" autocomplete="new-password" placeholder="本地 Ollama 可留空" spellcheck="false" data-1p-ignore>
+            <button id="toggle-key" type="button" aria-label="显示 API Key">显示</button>
+          </span>
+        </label>
+
+        <label class="field field-wide">
+          <span>测试提示词</span>
+          <input id="llm-prompt" value="Reply with exactly: CONNECTED">
+        </label>
+
+        <div class="actions field-wide">
+          <button class="primary" type="submit">测试 LLM 连接</button>
+          <button id="clear-key" class="text-button" type="button">清空密钥</button>
+          <span id="llm-status" class="status" role="status" aria-live="polite">尚未测试</span>
+        </div>
+      </form>
+
+      <aside class="notice">
+        <strong>安全边界</strong>
+        <p>此页面适合本机开发演示。若部署到网络环境，请先配置 HTTPS、Gateway Token、访问控制和允许的上游地址。</p>
+      </aside>
+    </section>
+
+    <section id="result-panel" class="results" aria-labelledby="result-title" hidden>
+      <div class="section-head result-head">
+        <p class="section-no">03</p>
+        <div>
+          <h2 id="result-title">执行结果</h2>
+          <p id="result-summary"></p>
+        </div>
+      </div>
+      <div id="result-cards" class="result-grid"></div>
+      <details>
+        <summary>查看完整 JSON</summary>
+        <pre id="raw-result"></pre>
+      </details>
+    </section>
+  </main>
+
+  <footer>
+    <p>RESEARCH MESH 0.4 / AIP DIRECT RPC / LOCAL DEVELOPMENT</p>
+  </footer>
+</body>
+</html>
