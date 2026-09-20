@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "research-mesh"
+version = "0.1.0"
+description = "AIP-based minimal multi-agent research collaboration loop"
+readme = "README.md"
+requires-python = ">=3.11,<4"
+dependencies = [
+  "acps-sdk @ git+https://github.com/AIP-PUB/ACPs-community.git@3985c1330209f075c124669cc9d31f0e75448140#subdirectory=acps-sdk",
+  "fastapi>=0.100",
+  "httpx>=0.24",
+  "pydantic>=2",
+  "uvicorn>=0.30",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9"]
+
+[project.scripts]
+research-mesh-demo = "research_mesh.demo:main"
+research-mesh-api = "research_mesh.api:serve"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-q"
