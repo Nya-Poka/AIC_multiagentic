@@ -1,4 +1,4 @@
-# Research Mesh MVP
+# 基于多智能体协作的一站式科研助理平台
 
 面向“智能体互联”赛道的科研协作最小闭环。当前版本使用官方 `acps-sdk 2.2.0`
 的 AIP Direct RPC，完成：

@@ -25,7 +25,7 @@ class AgentCardDefinition:
 AGENT_CARDS: dict[str, AgentCardDefinition] = {
     "leader": AgentCardDefinition(
         slug="leader",
-        name="科研协作 Leader 智能体",
+        name="基于多智能体协作的一站式科研助理平台",
         description=(
             "面向科研问题的协作编排智能体。按需发现并调用文献检索、实验设计、"
             "数据分析和规范复核 Partner，汇总可追溯结果；不代替人工完成伦理审批或"

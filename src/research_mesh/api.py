@@ -67,7 +67,7 @@ def create_app(
             await amp_runtime.stop()
 
     app = FastAPI(
-        title="Research Mesh MVP",
+        title="基于多智能体协作的一站式科研助理平台",
         version="0.5.0",
         description="AIP Direct RPC minimal loop for research collaboration.",
         lifespan=lifespan,
@@ -99,7 +99,7 @@ def create_app(
     leader_spec = PartnerSpec(
         slug="leader",
         aic=leader_aic,
-        name="科研协作 Leader 智能体",
+        name="基于多智能体协作的一站式科研助理平台",
         skill="research-collaboration.orchestration",
         processor=leader_processor,
     )
