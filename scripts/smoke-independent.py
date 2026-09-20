@@ -62,6 +62,26 @@ def main() -> None:
                     creationflags=creation_flags,
                 )
             )
+        llm_env = {**env, "RESEARCH_MESH_LLM_PROVIDER": "disabled"}
+        processes.append(
+            subprocess.Popen(
+                [
+                    str(PYTHON),
+                    "-m",
+                    "uvicorn",
+                    "research_mesh.llm_service:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    "8020",
+                    "--log-level",
+                    "warning",
+                ],
+                cwd=ROOT,
+                env=llm_env,
+                creationflags=creation_flags,
+            )
+        )
         processes.append(
             subprocess.Popen(
                 [
@@ -88,6 +108,9 @@ def main() -> None:
             if acs["name"] == "":
                 raise RuntimeError(f"{slug} returned an empty ACS")
         wait_ready("http://127.0.0.1:8000/health")
+        wait_ready("http://127.0.0.1:8020/health")
+        llm_health = httpx.get("http://127.0.0.1:8020/health", timeout=3).json()
+        assert llm_health["status"] == "disabled"
 
         response = httpx.post(
             "http://127.0.0.1:8000/research/run",
@@ -98,7 +121,9 @@ def main() -> None:
         report = response.json()
         assert report["status"] == "completed"
         assert len(report["provenance"]) == 4
-        print("independent-process smoke: completed with 4 AIP partner calls")
+        print(
+            "independent-process smoke: 4 AIP calls + LLM gateway health completed"
+        )
     finally:
         for process in reversed(processes):
             process.terminate()

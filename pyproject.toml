@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-mesh"
-version = "0.2.0"
+version = "0.3.0"
 description = "AIP-based minimal multi-agent research collaboration loop"
 readme = "README.md"
 requires-python = ">=3.11,<4"
@@ -22,6 +22,7 @@ dev = ["pytest>=9"]
 [project.scripts]
 research-mesh-demo = "research_mesh.demo:main"
 research-mesh-api = "research_mesh.api:serve"
+research-mesh-llm = "research_mesh.llm_service:serve"
 
 [tool.setuptools.packages.find]
 where = ["src"]

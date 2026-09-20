@@ -15,6 +15,7 @@
 
 - 1 个科研 Leader 服务（端口 `8000`）；
 - 4 个独立进程、独立任务存储的 Partner 服务（端口 `8011`～`8014`）；
+- 1 个统一 LLM Gateway 服务（端口 `8020`）；
 - 官方 `TaskCommand` / `TaskResult` / `TaskState` / `AipRpcClient`；
 - `start -> awaiting-completion -> complete -> completed` 状态闭环；
 - 缺少必要输入时进入 `awaiting-input`；
@@ -77,15 +78,51 @@ $env:CROSSREF_MAILTO = 'team@example.com'
 }
 ```
 
-## 运行五个独立服务
+## 统一 LLM Gateway
 
-分别打开五个 PowerShell 终端：
+所有 Agent 可通过 `LLMGatewayClient` 使用同一套请求和响应模型，不直接依赖具体云厂商
+SDK。Gateway 当前适配 OpenAI-compatible `/v1/chat/completions`，因此可连接支持该协议的
+云模型服务或本地 Ollama。统一接口包括：
+
+- `POST /v1/complete`：非流式文本或 JSON completion；
+- `GET /v1/models`：查看当前允许的模型；
+- `GET /health`：查看启用、禁用或配置错误状态；
+- 统一返回 provider、model、content、finish reason、token 用量、延迟和请求 ID。
+
+默认配置为 `disabled`，不会调用任何模型，也不需要 API Key。使用本地 Ollama 的配置示例：
+
+```powershell
+$env:RESEARCH_MESH_LLM_PROVIDER = 'openai-compatible'
+$env:RESEARCH_MESH_LLM_BASE_URL = 'http://127.0.0.1:11434/v1'
+$env:RESEARCH_MESH_LLM_MODEL = '你的本地模型名称'
+.\scripts\run-llm.ps1
+```
+
+使用云服务时，再通过环境变量提供密钥：
+
+```powershell
+$env:RESEARCH_MESH_LLM_PROVIDER = 'openai-compatible'
+$env:RESEARCH_MESH_LLM_BASE_URL = 'https://服务商地址/v1'
+$env:RESEARCH_MESH_LLM_API_KEY = '仅保存在本机环境中的密钥'
+$env:RESEARCH_MESH_LLM_MODEL = '服务商模型ID'
+$env:RESEARCH_MESH_LLM_GATEWAY_TOKEN = '内部网关的强随机令牌'
+.\scripts\run-llm.ps1
+```
+
+密钥只保存在 Gateway 进程中，不出现在健康检查、统一响应或 Git 仓库中。默认不允许请求
+临时切换模型，并限制最大输出 token。部署到非本机网络时必须设置 Gateway Token，并在
+入口增加 TLS 和访问控制。Prompt 会发送给所配置的上游服务，不应包含无权外发的数据。
+
+## 运行六个独立服务
+
+分别打开六个 PowerShell 终端：
 
 ```powershell
 .\scripts\run-partner.ps1 -Agent literature
 .\scripts\run-partner.ps1 -Agent experiment
 .\scripts\run-partner.ps1 -Agent analysis
 .\scripts\run-partner.ps1 -Agent review
+.\scripts\run-llm.ps1
 .\scripts\run-api.ps1
 ```
 
@@ -98,6 +135,7 @@ $env:CROSSREF_MAILTO = 'team@example.com'
 | Experiment Partner | 8012 | `/rpc`、`/acs`、`/health` |
 | Analysis Partner | 8013 | `/rpc`、`/acs`、`/health` |
 | Review Partner | 8014 | `/rpc`、`/acs`、`/health` |
+| LLM Gateway | 8020 | `/v1/complete`、`/v1/models`、`/health` |
 
 常用入口：
 
@@ -106,6 +144,7 @@ $env:CROSSREF_MAILTO = 'team@example.com'
 - `POST http://127.0.0.1:8000/research/run`
 - `GET http://127.0.0.1:8000/docs`
 - `GET http://127.0.0.1:8011/acs`（其余 Partner 同理）
+- `GET http://127.0.0.1:8020/health`
 
 演示请求可参考 `src/research_mesh/sample_data.py`。
 
@@ -121,13 +160,14 @@ Partner 地址可通过 `.env.example` 中的环境变量覆盖，便于后续�
 ```
 
 第一条运行无网络依赖的单元与内存 HTTP 集成测试；第二条真实访问 Crossref 并要求至少
-返回一条文献；第三条启动五个操作系统进程，验证健康检查、ACS、跨进程 AIP 调用和完整
-四 Agent 闭环，结束后会自动清理进程。
+返回一条文献；第三条启动六个操作系统进程，验证健康检查、ACS、LLM Gateway、跨进程
+AIP 调用和完整四 Agent 闭环，结束后会自动清理进程。
 
 ## 下一步
 
 1. 用当前四份本地 ACS 申请平台 AIC，并补齐正式 provider、安全方案和公网端点；
 2. 用官方 ADP `discovery-server` 替换 `LocalCapabilityRegistry`；
 3. 配置 CAI 证书、mTLS 和身份绑定；
-4. 增加全文获取、第二文献源交叉核验与受限代码执行沙箱；
-5. 增加故障重发现、基线实验和梧桐平台访问证据。
+4. 让实验设计和报告综合 Agent 按任务策略调用统一 LLM Gateway；
+5. 增加全文获取、第二文献源交叉核验与受限代码执行沙箱；
+6. 增加故障重发现、基线实验和梧桐平台访问证据。

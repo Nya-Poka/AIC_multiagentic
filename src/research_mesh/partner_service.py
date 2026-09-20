@@ -32,7 +32,7 @@ def local_acs(spec: PartnerSpec, rpc_url: str) -> dict[str, object]:
         "protocolVersion": "02.02",
         "name": spec.name,
         "description": f"科研协作平台的{spec.name}。{capability_description}",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "provider": {"organization": "参赛团队待填写"},
         "securitySchemes": {},
         "endPoints": [{"url": rpc_url, "transport": "JSONRPC"}],
@@ -48,7 +48,7 @@ def local_acs(spec: PartnerSpec, rpc_url: str) -> dict[str, object]:
                 "id": f"research-collaboration.{spec.skill}",
                 "name": spec.name,
                 "description": capability_description,
-                "version": "0.2.0",
+                "version": "0.3.0",
                 "tags": ["科研协作", spec.skill]
                 + (["Crossref", "DOI"] if spec.slug == "literature" else []),
                 "inputModes": ["application/json", "text/plain"],
@@ -69,7 +69,7 @@ def create_partner_app(
     resolved_rpc_url = rpc_url or f"http://127.0.0.1:{PARTNER_PORTS[slug]}/rpc"
     app = FastAPI(
         title=f"Research Mesh - {spec.name}",
-        version="0.2.0",
+        version="0.3.0",
         description=f"Independent AIP Partner providing {spec.skill}.",
     )
     add_aip_rpc_router(
