@@ -62,7 +62,12 @@ def default_registry(
 
     overrides = endpoint_overrides or {}
     records = [
-        ("literature", "文献证据智能体", "literature-search", ["文献", "证据", "引用"]),
+        (
+            "literature",
+            "文献证据智能体",
+            "literature-search",
+            ["文献", "证据", "引用", "Crossref", "DOI"],
+        ),
         ("experiment", "实验设计智能体", "experiment-design", ["假设", "变量", "实验"]),
         ("analysis", "数据分析智能体", "data-analysis", ["统计", "数据", "复现"]),
         ("review", "规范复核智能体", "method-review", ["规范", "引用核验", "复核"]),

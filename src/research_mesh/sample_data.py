@@ -7,6 +7,7 @@ def sample_request() -> ResearchRequest:
     return ResearchRequest(
         question="学习时间与小规模测验成绩之间是否存在值得进一步研究的关系？",
         objective="形成一个可复核的初步实验方案，并对示例数据完成描述性统计。",
+        literature_query="study time academic performance test scores",
         documents=[
             SourceDocument(
                 title="示例研究记录：学习行为与形成性评价",

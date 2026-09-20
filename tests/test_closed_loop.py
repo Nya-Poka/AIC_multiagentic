@@ -10,8 +10,24 @@ from research_mesh.registry import default_registry
 from research_mesh.sample_data import sample_request
 
 
+async def fake_literature_search(payload: dict) -> dict:
+    evidence = [
+        {**document, "verification": "test-provider"}
+        for document in payload["request"]["documents"]
+    ]
+    return {
+        "evidence": evidence,
+        "count": len(evidence),
+        "external_count": 0,
+        "seed_count": len(evidence),
+        "provider": {"name": "test-provider", "status": "ok"},
+    }
+
+
 def isolated_test_system():
-    partner_apps = create_partner_apps()
+    partner_apps = create_partner_apps(
+        {"literature": fake_literature_search}
+    )
     endpoints = {
         slug: f"http://{slug}.test/rpc" for slug in partner_apps
     }

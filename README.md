@@ -20,6 +20,7 @@
 - 缺少必要输入时进入 `awaiting-input`；
 - 按技能动态选择 Partner；
 - 并行执行前三个研究步骤；
+- 文献 Agent 通过 Crossref 官方 REST API 检索真实书目数据；
 - 结构化产物、规范复核与 provenance 轨迹；
 - FastAPI 接口和自动化测试。
 
@@ -47,6 +48,34 @@ CAI 证书和 mTLS。
 ```
 
 输出包含四个 Partner 的结果和每次 AIP 调用的任务ID、最终状态及耗时。
+
+## 真实文献检索
+
+文献 Agent 默认使用 [Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)
+的 `/works` 接口，以 `literature_query`（未提供时使用 `question`）检索真实论文元数据。
+Crossref 官方公开接口不要求注册或 API Key。建议在环境变量中填写联系邮箱，以使用
+polite pool：
+
+```powershell
+$env:CROSSREF_MAILTO = 'team@example.com'
+```
+
+返回结果包含 DOI、作者、年份、期刊或会议、引用数、Crossref 相关度、数据源、检索时间和
+摘要可用状态。没有摘要时会明确标记，不会生成论文内容。系统会缓存成功结果 15 分钟；
+网络失败时保留用户提供的种子文献，并把 provider 状态标记为 `unavailable`。
+`literature_query` 会发送给 Crossref；不要在检索词中放入未公开数据或个人敏感信息。
+
+请求中可控制查询和结果数量：
+
+```json
+{
+  "question": "学习时间是否与测验成绩有关？",
+  "objective": "查找相关研究并形成实验方案。",
+  "literature_query": "study time academic performance test scores",
+  "max_literature_results": 5,
+  "documents": []
+}
+```
 
 ## 运行五个独立服务
 
@@ -87,16 +116,18 @@ Partner 地址可通过 `.env.example` 中的环境变量覆盖，便于后续�
 
 ```powershell
 .\scripts\test.ps1
+.\scripts\smoke-literature-live.ps1
 .\scripts\smoke-independent.ps1
 ```
 
-第一条运行单元与内存 HTTP 集成测试；第二条真实启动五个操作系统进程，验证健康检查、
-ACS、跨进程 AIP 调用和完整四 Agent 闭环，结束后会自动清理进程。
+第一条运行无网络依赖的单元与内存 HTTP 集成测试；第二条真实访问 Crossref 并要求至少
+返回一条文献；第三条启动五个操作系统进程，验证健康检查、ACS、跨进程 AIP 调用和完整
+四 Agent 闭环，结束后会自动清理进程。
 
 ## 下一步
 
 1. 用当前四份本地 ACS 申请平台 AIC，并补齐正式 provider、安全方案和公网端点；
 2. 用官方 ADP `discovery-server` 替换 `LocalCapabilityRegistry`；
 3. 配置 CAI 证书、mTLS 和身份绑定；
-4. 接入真实文献数据库与受限代码执行沙箱；
+4. 增加全文获取、第二文献源交叉核验与受限代码执行沙箱；
 5. 增加故障重发现、基线实验和梧桐平台访问证据。

@@ -12,7 +12,7 @@ from .schemas import ResearchReport, ResearchRequest
 def create_app(registry: LocalCapabilityRegistry | None = None) -> FastAPI:
     app = FastAPI(
         title="Research Mesh MVP",
-        version="0.1.0",
+        version="0.2.0",
         description="AIP Direct RPC minimal loop for research collaboration.",
     )
     resolved_registry = registry or default_registry()

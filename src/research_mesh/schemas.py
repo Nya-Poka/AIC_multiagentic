@@ -34,6 +34,8 @@ class DatasetInput(BaseModel):
 class ResearchRequest(BaseModel):
     question: str = Field(min_length=8)
     objective: str = Field(min_length=8)
+    literature_query: str | None = Field(default=None, min_length=2, max_length=500)
+    max_literature_results: int = Field(default=5, ge=1, le=20)
     documents: list[SourceDocument] = Field(default_factory=list)
     dataset: DatasetInput | None = None
     constraints: list[str] = Field(default_factory=list)

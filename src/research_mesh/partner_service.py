@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 
 from fastapi import FastAPI, HTTPException
 
 from acps_sdk.aip.aip_rpc_server import add_aip_rpc_router
 
-from .partners import PARTNER_SPECS, PartnerSpec, make_handlers
+from .partners import PARTNER_SPECS, PartnerSpec, Processor, make_handlers
 from .registry import PARTNER_PORTS
 
 
@@ -20,13 +21,18 @@ def get_partner_spec(slug: str) -> PartnerSpec:
 def local_acs(spec: PartnerSpec, rpc_url: str) -> dict[str, object]:
     """Return a local ACS-shaped document for development and later registration."""
 
+    capability_description = (
+        "通过 Crossref 检索可追溯的真实文献元数据、DOI、作者和来源。"
+        if spec.slug == "literature"
+        else f"执行科研协作中的 {spec.skill} 任务。"
+    )
     return {
         "aic": spec.aic,
         "active": True,
         "protocolVersion": "02.02",
         "name": spec.name,
-        "description": f"科研协作平台的{spec.name}，提供 {spec.skill} 能力。",
-        "version": "0.1.0",
+        "description": f"科研协作平台的{spec.name}。{capability_description}",
+        "version": "0.2.0",
         "provider": {"organization": "参赛团队待填写"},
         "securitySchemes": {},
         "endPoints": [{"url": rpc_url, "transport": "JSONRPC"}],
@@ -41,9 +47,10 @@ def local_acs(spec: PartnerSpec, rpc_url: str) -> dict[str, object]:
             {
                 "id": f"research-collaboration.{spec.skill}",
                 "name": spec.name,
-                "description": f"执行科研协作中的 {spec.skill} 任务。",
-                "version": "0.1.0",
-                "tags": ["科研协作", spec.skill],
+                "description": capability_description,
+                "version": "0.2.0",
+                "tags": ["科研协作", spec.skill]
+                + (["Crossref", "DOI"] if spec.slug == "literature" else []),
                 "inputModes": ["application/json", "text/plain"],
                 "outputModes": ["application/json"],
             }
@@ -51,12 +58,18 @@ def local_acs(spec: PartnerSpec, rpc_url: str) -> dict[str, object]:
     }
 
 
-def create_partner_app(slug: str, rpc_url: str | None = None) -> FastAPI:
+def create_partner_app(
+    slug: str,
+    rpc_url: str | None = None,
+    processor: Processor | None = None,
+) -> FastAPI:
     spec = get_partner_spec(slug)
+    if processor is not None:
+        spec = replace(spec, processor=processor)
     resolved_rpc_url = rpc_url or f"http://127.0.0.1:{PARTNER_PORTS[slug]}/rpc"
     app = FastAPI(
         title=f"Research Mesh - {spec.name}",
-        version="0.1.0",
+        version="0.2.0",
         description=f"Independent AIP Partner providing {spec.skill}.",
     )
     add_aip_rpc_router(

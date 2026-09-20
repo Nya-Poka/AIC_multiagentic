@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import inspect
 import json
 import math
-import re
 import statistics
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +18,7 @@ from acps_sdk.aip.aip_base_model import (
 )
 from acps_sdk.aip.aip_rpc_server import CommandHandlers, DefaultHandlers, TaskManager
 
+from .literature import search_literature
 from .schemas import ResearchRequest
 
 
@@ -25,7 +26,9 @@ class PartnerInputError(ValueError):
     """The partner needs additional caller input before it can work."""
 
 
-Processor = Callable[[dict[str, Any]], dict[str, Any]]
+Processor = Callable[
+    [dict[str, Any]], dict[str, Any] | Awaitable[dict[str, Any]]
+]
 
 
 @dataclass(frozen=True)
@@ -64,10 +67,19 @@ def _awaiting_input(command: TaskCommand, spec: PartnerSpec, message: str) -> Ta
     return _with_sender(task, spec.aic)
 
 
-def _execute(command: TaskCommand, spec: PartnerSpec) -> TaskResult:
+async def _run_processor(spec: PartnerSpec, payload: dict[str, Any]) -> dict[str, Any]:
+    result = spec.processor(payload)
+    if inspect.isawaitable(result):
+        result = await result
+    if not isinstance(result, dict):
+        raise ValueError(f"{spec.slug} processor must return an object")
+    return result
+
+
+async def _execute(command: TaskCommand, spec: PartnerSpec) -> TaskResult:
     try:
         payload = _read_payload(command)
-        result = spec.processor(payload)
+        result = await _run_processor(spec, payload)
     except (PartnerInputError, ValueError) as exc:
         return _awaiting_input(command, spec, str(exc))
 
@@ -99,7 +111,7 @@ def make_handlers(spec: PartnerSpec) -> CommandHandlers:
     async def on_start(command: TaskCommand, task: TaskResult | None) -> TaskResult:
         if task is not None:
             return _with_sender(task, spec.aic)
-        return _execute(command, spec)
+        return await _execute(command, spec)
 
     async def on_continue(command: TaskCommand, task: TaskResult) -> TaskResult:
         TaskManager.add_command_to_history(task.taskId, command)
@@ -110,7 +122,7 @@ def make_handlers(spec: PartnerSpec) -> CommandHandlers:
             return _with_sender(task, spec.aic)
         try:
             payload = _read_payload(command)
-            result = spec.processor(payload)
+            result = await _run_processor(spec, payload)
         except (PartnerInputError, ValueError) as exc:
             updated = TaskManager.update_task_status(
                 task.taskId,
@@ -160,33 +172,9 @@ def _request(payload: dict[str, Any]) -> ResearchRequest:
     return ResearchRequest.model_validate(raw)
 
 
-def _tokens(text: str) -> set[str]:
-    latin = re.findall(r"[a-z0-9]{2,}", text.lower())
-    chinese = [text[index : index + 2] for index in range(max(0, len(text) - 1))]
-    return set(latin + chinese)
-
-
-def literature_processor(payload: dict[str, Any]) -> dict[str, Any]:
+async def literature_processor(payload: dict[str, Any]) -> dict[str, Any]:
     request = _request(payload)
-    if not request.documents:
-        raise PartnerInputError("至少提供一条种子文献；外部检索连接器将在下一阶段接入")
-
-    query_tokens = _tokens(f"{request.question} {request.objective}")
-    ranked: list[tuple[int, dict[str, Any]]] = []
-    for document in request.documents:
-        searchable = f"{document.title} {document.summary}".lower()
-        score = sum(1 for token in query_tokens if token and token in searchable)
-        record = document.model_dump(mode="json")
-        record["relevance_score"] = score
-        record["verification"] = "user-provided"
-        ranked.append((score, record))
-    ranked.sort(key=lambda item: (item[0], item[1]["title"]), reverse=True)
-    return {
-        "evidence": [record for _, record in ranked],
-        "count": len(ranked),
-        "fabricated_citations": 0,
-        "limitations": ["MVP仅核验用户提供的元数据，尚未连接外部文献数据库"],
-    }
+    return await search_literature(request)
 
 
 def experiment_processor(payload: dict[str, Any]) -> dict[str, Any]:
