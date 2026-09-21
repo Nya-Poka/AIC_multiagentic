@@ -61,6 +61,32 @@ def test_registration_acs_declares_mtls_and_uses_empty_unassigned_aic(monkeypatc
     assert parsed.skills[0].id == "literature-search"
 
 
+def test_leader_acs_exposes_searchable_research_capabilities(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_MESH_MODE", "local")
+    settings = RuntimeSettings.from_env()
+    acs = build_acs(
+        "leader",
+        settings=settings,
+        endpoint="https://agents.example.edu.cn/leader/rpc",
+        registration_template=True,
+    )
+
+    skill = acs["skills"][0]
+    assert acs["version"] == "0.6.0"
+    assert skill["version"] == "0.6.0"
+    assert skill["id"] == "research-collaboration.orchestration"
+    assert skill["name"] == "一站式科研助理与多智能体科研协作编排"
+    assert {
+        "文献检索",
+        "实验设计",
+        "数据分析",
+        "统计分析",
+        "规范复核",
+        "可追溯",
+    }.issubset(skill["tags"])
+    assert len(skill["examples"]) >= 5
+
+
 def test_adp_registry_maps_discovery_response() -> None:
     async def scenario() -> None:
         aic = "1.2.156.3088.1.1.D55UOU.NEBZUA.1.0QLD"
