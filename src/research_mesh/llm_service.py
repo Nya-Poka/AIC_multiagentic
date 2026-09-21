@@ -32,7 +32,7 @@ def create_llm_app(
 
     app = FastAPI(
         title="Research Mesh LLM Gateway",
-        version="0.5.0",
+        version="0.6.0",
         description="Provider-neutral completion gateway for research agents.",
     )
     app.state.llm_client = resolved_client

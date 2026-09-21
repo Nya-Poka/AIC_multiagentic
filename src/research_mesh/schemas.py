@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SourceDocument(BaseModel):
@@ -16,28 +16,14 @@ class SourceDocument(BaseModel):
     identifier: str | None = None
 
 
-class DatasetInput(BaseModel):
-    """The deliberately small numeric dataset supported by the MVP."""
-
-    measure: str = Field(min_length=1)
-    values: list[float] = Field(min_length=2)
-    unit: str | None = None
-
-    @field_validator("values")
-    @classmethod
-    def values_must_be_finite(cls, values: list[float]) -> list[float]:
-        if any(value != value or value in (float("inf"), float("-inf")) for value in values):
-            raise ValueError("dataset values must be finite")
-        return values
-
-
 class ResearchRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     question: str = Field(min_length=8)
     objective: str = Field(min_length=8)
     literature_query: str | None = Field(default=None, min_length=2, max_length=500)
     max_literature_results: int = Field(default=5, ge=1, le=20)
     documents: list[SourceDocument] = Field(default_factory=list)
-    dataset: DatasetInput | None = None
     constraints: list[str] = Field(default_factory=list)
 
 

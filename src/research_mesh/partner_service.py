@@ -58,7 +58,7 @@ def create_partner_app(
 
     app = FastAPI(
         title=f"Research Mesh - {spec.name}",
-        version="0.5.0",
+        version="0.6.0",
         description=f"Independent AIP Partner providing {spec.skill}.",
         lifespan=lifespan,
     )

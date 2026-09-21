@@ -42,21 +42,6 @@ class LLMCompletionRequest(BaseModel):
         return self
 
 
-class LLMConnectionTestRequest(BaseModel):
-    """Ephemeral BYOK configuration used only for one UI connection test."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    base_url: str = Field(min_length=8, max_length=500)
-    model: str = Field(min_length=1, max_length=200)
-    api_key: SecretStr | None = Field(default=None, max_length=10_000)
-    prompt: str = Field(
-        default="Reply with exactly: CONNECTED",
-        min_length=1,
-        max_length=2000,
-    )
-
-
 class LLMUsage(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None

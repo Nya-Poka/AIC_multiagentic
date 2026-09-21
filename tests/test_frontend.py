@@ -1,14 +1,13 @@
 from __future__ import annotations
 
 import asyncio
-import json
 
 import httpx
 
 from research_mesh.api import create_app
 
 
-def test_frontend_and_static_assets_are_served() -> None:
+def test_frontend_and_static_assets_are_served_without_browser_byok() -> None:
     async def scenario() -> None:
         app = create_app()
         async with httpx.AsyncClient(
@@ -21,47 +20,37 @@ def test_frontend_and_static_assets_are_served() -> None:
 
         assert page.status_code == 200
         assert 'id="research-form"' in page.text
-        assert 'id="llm-api-key" type="password"' in page.text
-        assert "localStorage" in page.text
+        assert "四个专业角色，一条完整链路" in page.text
+        assert "llm-api-key" not in page.text
+        assert "llm-form" not in page.text
+        assert "API Key" not in page.text
+        assert 'id="measure"' not in page.text
+        assert 'id="unit"' not in page.text
+        assert 'id="values"' not in page.text
+        assert "无需输入具体数值" in page.text
+        assert "OpenAlex" in page.text
+        assert "Semantic Scholar" in page.text
+
         assert stylesheet.status_code == 200
         assert "#e11d48" in stylesheet.text
+        assert "@media (max-width: 680px)" in stylesheet.text
+
         assert script.status_code == 200
-        assert "localStorage.setItem" not in script.text
         assert 'fetch("/research/run"' in script.text
-        assert 'fetch("/ui/llm/test"' in script.text
+        assert 'fetch("/health"' in script.text
+        assert "/ui/llm/test" not in script.text
+        assert "api_key" not in script.text
+        assert "localStorage" not in script.text
+        assert "parseNumbers" not in script.text
+        assert "dataset:" not in script.text
+        assert "provider-status-list" in script.text
 
     asyncio.run(scenario())
 
 
-def test_byok_connection_uses_key_once_and_does_not_echo_it() -> None:
+def test_browser_byok_endpoint_is_not_exposed() -> None:
     async def scenario() -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            assert request.url.path == "/v1/chat/completions"
-            assert request.headers["authorization"] == "Bearer browser-secret"
-            payload = json.loads(request.content)
-            assert payload["model"] == "demo-model"
-            assert payload["messages"][0]["content"] == "Reply CONNECTED"
-            return httpx.Response(
-                200,
-                headers={"x-request-id": "ui-test-1"},
-                json={
-                    "model": "demo-model",
-                    "choices": [
-                        {
-                            "message": {"content": "CONNECTED"},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": 3,
-                        "completion_tokens": 1,
-                        "total_tokens": 4,
-                    },
-                },
-            )
-
         app = create_app()
-        app.state.llm_transport = httpx.MockTransport(handler)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://research-mesh.test",
@@ -72,64 +61,10 @@ def test_byok_connection_uses_key_once_and_does_not_echo_it() -> None:
                     "base_url": "https://provider.test/v1",
                     "model": "demo-model",
                     "api_key": "browser-secret",
-                    "prompt": "Reply CONNECTED",
                 },
             )
 
-        assert response.status_code == 200, response.text
-        assert response.json()["content"] == "CONNECTED"
-        assert response.json()["request_id"] == "ui-test-1"
-        assert "browser-secret" not in response.text
-        assert app.state.llm_transport is not None
-
-    asyncio.run(scenario())
-
-
-def test_byok_rejects_unencrypted_remote_provider() -> None:
-    async def scenario() -> None:
-        app = create_app()
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://research-mesh.test",
-        ) as client:
-            response = await client.post(
-                "/ui/llm/test",
-                json={
-                    "base_url": "http://provider.example/v1",
-                    "model": "demo-model",
-                    "api_key": "browser-secret",
-                },
-            )
-        assert response.status_code == 422
-        assert "must use HTTPS" in response.json()["detail"]
-        assert "browser-secret" not in response.text
-
-    asyncio.run(scenario())
-
-
-def test_byok_connect_error_returns_actionable_network_diagnostics() -> None:
-    async def scenario() -> None:
-        def handler(request: httpx.Request) -> httpx.Response:
-            raise httpx.ConnectError("network unavailable", request=request)
-
-        app = create_app()
-        app.state.llm_transport = httpx.MockTransport(handler)
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://research-mesh.test",
-        ) as client:
-            response = await client.post(
-                "/ui/llm/test",
-                json={
-                    "base_url": "https://api.deepseek.com",
-                    "model": "deepseek-flash",
-                    "api_key": "browser-secret",
-                },
-            )
-        assert response.status_code == 502
-        detail = response.json()["detail"]
-        assert "outbound network" in detail
-        assert "DNS" in detail
+        assert response.status_code == 404
         assert "browser-secret" not in response.text
 
     asyncio.run(scenario())

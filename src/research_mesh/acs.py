@@ -48,13 +48,14 @@ AGENT_CARDS: dict[str, AgentCardDefinition] = {
         slug="literature",
         name="文献证据智能体",
         description=(
-            "通过 Crossref 检索公开文献元数据，返回题名、作者、年份、来源与 DOI；"
+            "通过 Crossref、OpenAlex 与 Semantic Scholar 检索并交叉核验公开文献元数据，"
+            "返回题名、作者、年份、摘要、开放获取位置、来源与 DOI；"
             "不声称阅读全文，不伪造无法验证的引文或结论。"
         ),
         skill_id="literature-search",
         skill_name="可追溯文献检索",
-        skill_description="按研究问题检索公开文献元数据，并保留 DOI 与检索来源。",
-        tags=("科研协作", "文献", "Crossref", "DOI", "证据"),
+        skill_description="按研究问题执行多源文献检索、去重与排序，并保留 DOI、开放获取位置与检索来源。",
+        tags=("科研协作", "文献", "Crossref", "OpenAlex", "Semantic Scholar", "DOI", "证据"),
         examples=(
             "检索睡眠时长与大学生学业表现相关的五篇文献",
             "为这个研究假设查找包含 DOI 的可追溯证据",
@@ -80,19 +81,19 @@ AGENT_CARDS: dict[str, AgentCardDefinition] = {
     ),
     "analysis": AgentCardDefinition(
         slug="analysis",
-        name="数据分析智能体",
+        name="证据分析智能体",
         description=(
-            "对调用方提供的有限数值数据执行确定性的描述性统计和有限性检查；"
-            "不进行因果推断，也不把小样本统计结果外推到总体。"
+            "对文献检索产物执行确定性的来源、DOI、摘要、开放获取和年代覆盖检查；"
+            "不进行因果推断，也不把书目元数据当作已核读全文。"
         ),
         skill_id="data-analysis",
-        skill_name="可复现描述性统计",
-        skill_description="计算样本量、均值、中位数、极值和样本标准差并记录分析引擎。",
-        tags=("科研协作", "数据分析", "描述性统计", "可复现"),
+        skill_name="可复现证据覆盖分析",
+        skill_description="统计证据来源、DOI、摘要、开放获取和发表年代覆盖并记录分析引擎。",
+        tags=("科研协作", "证据分析", "来源覆盖", "DOI", "可复现"),
         examples=(
-            "分析这组学习成绩并返回均值、中位数和样本标准差",
-            "检查输入数值是否有限并生成可复现统计摘要",
-            "只做描述性统计，不进行因果推断",
+            "分析检索结果中 DOI、摘要和开放版本的覆盖率",
+            "按数据源统计文献数量并给出年代范围",
+            "只分析证据元数据，不假装已经核读全文",
         ),
     ),
     "review": AgentCardDefinition(
@@ -187,7 +188,7 @@ def build_acs(
         "protocolVersion": "02.02",
         "name": definition.name,
         "description": definition.description,
-        "version": "0.5.0",
+        "version": "0.6.0",
         "provider": provider,
         "securitySchemes": (
             {
@@ -218,7 +219,7 @@ def build_acs(
                 "id": definition.skill_id,
                 "name": definition.skill_name,
                 "description": definition.skill_description,
-                "version": "0.5.0",
+                "version": "0.6.0",
                 "tags": list(definition.tags),
                 "examples": list(definition.examples),
                 "inputModes": ["application/json", "text/plain"],

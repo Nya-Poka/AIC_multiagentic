@@ -4,152 +4,148 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="基于多智能体协作的一站式科研助理平台">
-  <title>基于多智能体协作的一站式科研助理平台</title>
+  <title>一站式科研助理平台</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23111'/%3E%3Cpath d='M14 50V14h19c11 0 17 5 17 15 0 6-3 10-8 12l10 9H39l-8-8h-5v8zm12-18h7c4 0 6-1 6-4s-2-4-6-4h-7z' fill='%23fff'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="/assets/app.css">
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <header class="masthead">
-    <p class="eyebrow">RESEARCH MESH / LOCAL CONSOLE</p>
-    <div class="title-grid">
-      <h1>科研协作<br><span>控制台</span></h1>
-      <p class="intro">用一个页面启动文献检索、实验设计、数据分析与规范复核。结果保留 Agent、任务状态与来源轨迹。</p>
+  <a class="skip-link" href="#workspace">跳到科研任务表单</a>
+
+  <header class="site-header">
+    <div class="topline">
+      <a class="brand" href="/" aria-label="返回科研助理首页">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span>RESEARCH MESH</span>
+      </a>
+      <p id="system-status" class="system-status" role="status" aria-live="polite">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span id="system-status-text">正在检查服务</span>
+      </p>
     </div>
-    <div class="red-rule" aria-hidden="true"></div>
+
+    <div class="hero">
+      <div>
+        <p class="eyebrow">MULTI-AGENT RESEARCH WORKSPACE</p>
+        <h1>
+          <span class="hero-line hero-lead">把研究问题，<span class="mobile-line">交给一组</span></span>
+          <span class="hero-line hero-accent">协作智能体</span>
+        </h1>
+      </div>
+      <div class="hero-copy">
+        <p>从多源文献证据到实验方案、证据分析与规范复核，一次提交获得结构化、可追踪的研究初稿。</p>
+        <a href="#workspace">开始一项研究 <span aria-hidden="true">↓</span></a>
+      </div>
+    </div>
   </header>
 
   <main>
-    <nav class="tabs" aria-label="控制台区域">
-      <button class="tab active" type="button" data-target="research-panel">01 / 运行研究</button>
-      <button class="tab" type="button" data-target="llm-panel">02 / LLM 设置</button>
-    </nav>
-
-    <section id="research-panel" class="panel active" aria-labelledby="research-title">
-      <div class="section-head">
-        <p class="section-no">01</p>
-        <div>
-          <h2 id="research-title">运行最小科研闭环</h2>
-          <p>必填项保持最少；数值数据支持逗号、空格或换行分隔。</p>
-        </div>
+    <section class="workflow" aria-labelledby="workflow-title">
+      <div class="section-label">
+        <p>工作流</p>
+        <h2 id="workflow-title">四个专业角色，一条完整链路</h2>
       </div>
-
-      <form id="research-form" class="form-grid">
-        <label class="field field-wide">
-          <span>研究问题 *</span>
-          <textarea id="question" required minlength="8" rows="3">学习时间与小规模测验成绩之间是否存在值得进一步研究的关系？</textarea>
-        </label>
-
-        <label class="field field-wide">
-          <span>研究目标 *</span>
-          <textarea id="objective" required minlength="8" rows="3">形成一个可复核的初步实验方案，并对示例数据完成描述性统计。</textarea>
-        </label>
-
-        <label class="field field-wide">
-          <span>英文文献检索词</span>
-          <input id="literature-query" value="study time academic performance test scores">
-        </label>
-
-        <label class="field">
-          <span>指标名称</span>
-          <input id="measure" value="测验成绩">
-        </label>
-
-        <label class="field">
-          <span>单位</span>
-          <input id="unit" value="分">
-        </label>
-
-        <label class="field field-wide">
-          <span>数值数据 *</span>
-          <textarea id="values" required rows="3">72, 75, 78, 81, 83, 88, 91</textarea>
-          <small id="values-help">至少输入两个有限数字。</small>
-        </label>
-
-        <label class="field field-wide">
-          <span>研究约束</span>
-          <textarea id="constraints" rows="3">仅进行描述性统计
-不得声称因果关系
-所有结论保留证据来源</textarea>
-        </label>
-
-        <label class="field compact">
-          <span>文献数量</span>
-          <input id="max-results" type="number" min="1" max="20" value="5">
-        </label>
-
-        <div class="actions field-wide">
-          <button class="primary" type="submit">运行四 Agent 闭环</button>
-          <span id="research-status" class="status" role="status" aria-live="polite">等待输入</span>
-        </div>
-      </form>
+      <ol class="workflow-list">
+        <li><span>01</span><strong>多源文献证据</strong><p>并行检索 Crossref、OpenAlex 与 Semantic Scholar。</p></li>
+        <li><span>02</span><strong>实验设计</strong><p>形成假设、变量、控制条件与步骤。</p></li>
+        <li><span>03</span><strong>证据分析</strong><p>核对来源、摘要、DOI 与开放获取覆盖率。</p></li>
+        <li><span>04</span><strong>规范复核</strong><p>检查证据、方法和研究边界。</p></li>
+      </ol>
     </section>
 
-    <section id="llm-panel" class="panel" aria-labelledby="llm-title" hidden>
-      <div class="section-head">
-        <p class="section-no">02</p>
+    <section id="workspace" class="workspace" aria-labelledby="workspace-title">
+      <header class="workspace-head">
         <div>
-          <h2 id="llm-title">连接 OpenAI-compatible 模型</h2>
-          <p>密钥只随本次测试请求发送，不写入文件、localStorage 或服务端配置。</p>
+          <p class="eyebrow">NEW RESEARCH TASK</p>
+          <h2 id="workspace-title">发起科研协作</h2>
         </div>
-      </div>
+        <p>带 * 的项目为必填。示例内容可以直接运行，也可以替换成你的研究问题。</p>
+      </header>
 
-      <form id="llm-form" class="form-grid" autocomplete="off">
-        <label class="field field-wide">
-          <span>接口地址 *</span>
-          <input id="llm-base-url" type="url" required value="http://127.0.0.1:11434/v1" spellcheck="false">
-          <small>DeepSeek：填写 https://api.deepseek.com；本地 Ollama 使用上面的 /v1 地址。</small>
-        </label>
+      <form id="research-form" class="research-form">
+        <fieldset class="form-section">
+          <legend><span>01</span> 定义问题</legend>
+          <div class="fields fields-two">
+            <label class="field field-wide">
+              <span>研究问题 *</span>
+              <textarea id="question" required minlength="8" rows="3">学习时间与小规模测验成绩之间是否存在值得进一步研究的关系？</textarea>
+              <small>尽量包含研究对象、影响因素和希望观察的结果。</small>
+            </label>
+            <label class="field field-wide">
+              <span>研究目标 *</span>
+              <textarea id="objective" required minlength="8" rows="3">形成一个可复核的初步实验方案，并评估检索证据的覆盖范围与可追溯性。</textarea>
+            </label>
+          </div>
+        </fieldset>
 
-        <label class="field">
-          <span>模型 ID *</span>
-          <input id="llm-model" required placeholder="例如：deepseek-flash" spellcheck="false">
-        </label>
+        <fieldset class="form-section">
+          <legend><span>02</span> 设置证据范围</legend>
+          <div class="fields fields-search">
+            <label class="field">
+              <span>文献检索词</span>
+              <input id="literature-query" value="study time academic performance test scores">
+              <small>系统会并行检索三个公开学术数据源；服务器启用 DeepSeek 扩展后还会自动生成补充检索词。</small>
+            </label>
+            <label class="field compact">
+              <span>文献数量</span>
+              <input id="max-results" type="number" min="1" max="20" value="5" inputmode="numeric">
+            </label>
+          </div>
+        </fieldset>
 
-        <label class="field">
-          <span>API Key</span>
-          <span class="secret-input">
-            <input id="llm-api-key" type="password" autocomplete="new-password" placeholder="本地 Ollama 可留空" spellcheck="false" data-1p-ignore>
-            <button id="toggle-key" type="button" aria-label="显示 API Key">显示</button>
-          </span>
-        </label>
+        <fieldset class="form-section">
+          <legend><span>03</span> 声明研究边界</legend>
+          <div class="fields">
+            <label class="field field-wide">
+              <span>研究约束</span>
+              <textarea id="constraints" rows="4">不得声称因果关系
+所有结论保留证据来源</textarea>
+              <small>每行一条。清楚的约束有助于规范复核智能体识别不当结论。</small>
+            </label>
+          </div>
+        </fieldset>
 
-        <label class="field field-wide">
-          <span>测试提示词</span>
-          <input id="llm-prompt" value="Reply with exactly: CONNECTED">
-        </label>
-
-        <div class="actions field-wide">
-          <button class="primary" type="submit">测试 LLM 连接</button>
-          <button id="clear-key" class="text-button" type="button">清空密钥</button>
-          <span id="llm-status" class="status" role="status" aria-live="polite">尚未测试</span>
+        <div class="submit-bar">
+          <div>
+            <p class="submit-title">准备好后启动完整闭环</p>
+            <p id="research-status" class="status" role="status" aria-live="polite">无需输入具体数值，等待提交研究问题</p>
+          </div>
+          <button id="research-submit" class="primary" type="submit">
+            <span class="button-label">运行四智能体协作</span>
+            <span aria-hidden="true">→</span>
+          </button>
         </div>
       </form>
-
-      <aside class="notice">
-        <strong>安全边界</strong>
-        <p>此页面适合本机开发演示。若部署到网络环境，请先配置 HTTPS、Gateway Token、访问控制和允许的上游地址。</p>
-      </aside>
     </section>
 
     <section id="result-panel" class="results" aria-labelledby="result-title" hidden>
-      <div class="section-head result-head">
-        <p class="section-no">03</p>
+      <header class="result-head">
         <div>
-          <h2 id="result-title">执行结果</h2>
-          <p id="result-summary"></p>
+          <p class="eyebrow">RESEARCH REPORT</p>
+          <h2 id="result-title">协作结果</h2>
         </div>
-      </div>
-      <div id="result-cards" class="result-grid"></div>
+        <p id="result-summary"></p>
+      </header>
+      <div id="result-cards" class="result-stack"></div>
+
+      <section class="provenance" aria-labelledby="provenance-title">
+        <div class="subsection-head">
+          <h3 id="provenance-title">调用轨迹</h3>
+          <p>每一步都保留智能体身份、任务状态和耗时。</p>
+        </div>
+        <div id="provenance-list" class="provenance-list"></div>
+      </section>
+
       <details>
-        <summary>查看完整 JSON</summary>
+        <summary>查看完整 JSON 数据</summary>
         <pre id="raw-result"></pre>
       </details>
     </section>
   </main>
 
   <footer>
-    <p>RESEARCH MESH 0.4 / AIP DIRECT RPC / LOCAL DEVELOPMENT</p>
+    <p>基于多智能体协作的一站式科研助理平台</p>
+    <p>AIP JSON-RPC · TRACEABLE RESEARCH WORKFLOW</p>
   </footer>
 </body>
 </html>

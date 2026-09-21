@@ -19,16 +19,6 @@ from fastapi.staticfiles import StaticFiles
 from .acs import build_acs
 from .config import RuntimeSettings, runtime_settings
 from .leader import AgentExecutionError, AgentInputRequired, ResearchLeader
-from .llm import (
-    LLMCompletionRequest,
-    LLMCompletionResponse,
-    LLMConfigurationError,
-    LLMConnectionTestRequest,
-    LLMMessage,
-    LLMProviderError,
-    LLMSettings,
-    OpenAICompatibleClient,
-)
 from .observability import AmpRuntime
 from .partners import PartnerInputError, PartnerSpec, make_handlers
 from .registry import (
@@ -68,12 +58,11 @@ def create_app(
 
     app = FastAPI(
         title="基于多智能体协作的一站式科研助理平台",
-        version="0.5.0",
+        version="0.6.0",
         description="AIP Direct RPC minimal loop for research collaboration.",
         lifespan=lifespan,
     )
     app.state.partner_transport_factory = None
-    app.state.llm_transport = None
     app.state.amp_runtime = amp_runtime
     if resolved_settings.identity_binding_enabled:
         app.add_middleware(AipPeerCertificateMiddleware)
@@ -154,38 +143,6 @@ def create_app(
                 detail="一个或多个 Partner 服务当前不可用",
             ) from exc
         except (AgentNotFoundError, DiscoveryUnavailableError) as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-    @app.post("/ui/llm/test", response_model=LLMCompletionResponse)
-    async def test_llm_connection(
-        request: LLMConnectionTestRequest,
-    ) -> LLMCompletionResponse:
-        """Use a browser-supplied key once; never persist it in application state."""
-
-        settings = LLMSettings(
-            provider="openai-compatible",
-            base_url=request.base_url,
-            api_key=request.api_key,
-            model=request.model,
-            timeout_seconds=30,
-            retries=0,
-            max_tokens_limit=128,
-        )
-        try:
-            client = OpenAICompatibleClient(
-                settings,
-                transport=app.state.llm_transport,
-            )
-            return await client.complete(
-                LLMCompletionRequest(
-                    messages=[LLMMessage(role="user", content=request.prompt)],
-                    max_tokens=64,
-                    temperature=0,
-                )
-            )
-        except LLMConfigurationError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        except LLMProviderError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     return app

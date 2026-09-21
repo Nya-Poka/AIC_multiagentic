@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import inspect
 import json
-import math
-import statistics
+from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -179,16 +178,15 @@ async def literature_processor(payload: dict[str, Any]) -> dict[str, Any]:
 
 def experiment_processor(payload: dict[str, Any]) -> dict[str, Any]:
     request = _request(payload)
-    measure = request.dataset.measure if request.dataset else "目标研究指标"
     return {
-        "hypothesis": f"围绕“{request.question}”，{measure}会随研究条件产生可测变化。",
+        "hypothesis": f"围绕“{request.question}”，研究条件与目标结果之间存在可检验的关联。",
         "independent_variables": ["研究条件（需在正式试验前具体化）"],
-        "dependent_variables": [measure],
+        "dependent_variables": ["与研究目标一致的可观察结果指标"],
         "controls": ["统一数据采集流程", "统一纳入与排除标准", "固定分析版本与随机种子"],
         "steps": [
             "登记研究假设和分析计划",
             "按统一标准采集或导入数据",
-            "执行描述性统计和质量检查",
+            "执行证据覆盖分析和质量检查",
             "按预注册方案完成比较或建模",
             "由独立复核智能体检查证据和方法",
         ],
@@ -198,25 +196,48 @@ def experiment_processor(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def analysis_processor(payload: dict[str, Any]) -> dict[str, Any]:
-    request = _request(payload)
-    if request.dataset is None:
-        raise PartnerInputError("数据分析需要 payload.request.dataset")
-    values = request.dataset.values
-    stdev = statistics.stdev(values) if len(values) > 1 else 0.0
+    _request(payload)
+    artifacts = payload.get("artifacts")
+    if not isinstance(artifacts, dict):
+        raise PartnerInputError("证据分析需要 payload.artifacts")
+    literature = artifacts.get("literature")
+    if not isinstance(literature, dict):
+        raise PartnerInputError("证据分析需要 payload.artifacts.literature")
+    evidence = literature.get("evidence")
+    if not isinstance(evidence, list):
+        raise PartnerInputError("文献智能体没有返回 evidence 列表")
+
+    external = [item for item in evidence if item.get("verification") != "user-provided"]
+    years = [item["year"] for item in evidence if isinstance(item.get("year"), int)]
+    source_counter: Counter[str] = Counter()
+    for item in evidence:
+        providers = item.get("providers")
+        if isinstance(providers, list):
+            source_counter.update(str(provider) for provider in providers)
+        elif item.get("provider"):
+            source_counter[str(item["provider"])] += 1
+
+    count = len(evidence)
+    with_doi = sum(bool(item.get("doi")) for item in evidence)
+    with_abstract = sum(bool(item.get("has_abstract")) for item in evidence)
+    open_access = sum(bool(item.get("open_access_url")) for item in evidence)
     return {
-        "measure": request.dataset.measure,
-        "unit": request.dataset.unit,
-        "n": len(values),
-        "mean": statistics.fmean(values),
-        "median": statistics.median(values),
-        "minimum": min(values),
-        "maximum": max(values),
-        "sample_standard_deviation": stdev,
-        "all_values_finite": all(math.isfinite(value) for value in values),
+        "record_count": count,
+        "external_count": len(external),
+        "provider_count": len(source_counter),
+        "source_distribution": dict(sorted(source_counter.items())),
+        "with_doi": with_doi,
+        "with_abstract": with_abstract,
+        "open_access_count": open_access,
+        "doi_coverage": round(with_doi / count, 4) if count else 0.0,
+        "abstract_coverage": round(with_abstract / count, 4) if count else 0.0,
+        "open_access_coverage": round(open_access / count, 4) if count else 0.0,
+        "year_min": min(years) if years else None,
+        "year_max": max(years) if years else None,
         "reproducibility": {
-            "engine": "python-statistics",
+            "engine": "research-mesh-evidence-audit-v1",
             "network_access": False,
-            "input_values_recorded": True,
+            "input_records_recorded": True,
         },
     }
 
@@ -236,8 +257,10 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
         findings.append({"severity": "error", "message": "缺少可追溯文献证据"})
     if not experiment.get("controls"):
         findings.append({"severity": "error", "message": "实验方案缺少控制条件"})
-    if analysis.get("n", 0) < 3:
-        findings.append({"severity": "warning", "message": "样本量过小，不能外推结论"})
+    if analysis.get("external_count", 0) < 3:
+        findings.append({"severity": "warning", "message": "外部文献证据少于 3 条，结论覆盖有限"})
+    if analysis.get("doi_coverage", 0) < 0.5:
+        findings.append({"severity": "warning", "message": "不足一半的证据具有 DOI 或稳定标识"})
     if not request.constraints:
         findings.append({"severity": "warning", "message": "尚未登记研究约束"})
 
@@ -273,7 +296,7 @@ PARTNER_SPECS: tuple[PartnerSpec, ...] = (
     PartnerSpec(
         "analysis",
         "local.research-mesh.analysis",
-        "数据分析智能体",
+        "证据分析智能体",
         "data-analysis",
         analysis_processor,
     ),

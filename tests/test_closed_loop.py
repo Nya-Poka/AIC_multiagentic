@@ -12,7 +12,13 @@ from research_mesh.sample_data import sample_request
 
 async def fake_literature_search(payload: dict) -> dict:
     evidence = [
-        {**document, "verification": "test-provider"}
+        {
+            **document,
+            "verification": "test-provider",
+            "provider": "test-provider",
+            "providers": ["test-provider"],
+            "has_abstract": True,
+        }
         for document in payload["request"]["documents"]
     ]
     return {
@@ -51,7 +57,9 @@ def test_full_research_loop_over_http_and_aip() -> None:
         report = response.json()
         assert report["status"] == "completed"
         assert report["literature"]["count"] == 2
-        assert report["analysis"]["n"] == 7
+        assert report["analysis"]["record_count"] == 2
+        assert report["analysis"]["provider_count"] == 1
+        assert report["analysis"]["with_abstract"] == 2
         assert report["review"]["passed"] is True
         assert len(report["provenance"]) == 4
         assert {event["final_state"] for event in report["provenance"]} == {"completed"}
@@ -65,19 +73,26 @@ def test_full_research_loop_over_http_and_aip() -> None:
     asyncio.run(scenario())
 
 
-def test_pipeline_fails_closed_when_required_data_is_missing() -> None:
+def test_removed_numeric_dataset_is_rejected_by_leader_input_schema() -> None:
     async def scenario() -> None:
         app = isolated_test_system()
-        request = sample_request().model_copy(update={"dataset": None})
+        request = sample_request().model_dump(mode="json")
+        request["dataset"] = {
+            "measure": "legacy input",
+            "values": [1, 2, 3],
+            "unit": None,
+        }
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app),
             base_url="http://research-mesh.test",
         ) as client:
             response = await client.post(
                 "/research/run",
-                json=request.model_dump(mode="json"),
+                json=request,
             )
         assert response.status_code == 422
-        assert "analysis requires input" in response.json()["detail"]
+        assert any(
+            error["loc"][-1] == "dataset" for error in response.json()["detail"]
+        )
 
     asyncio.run(scenario())

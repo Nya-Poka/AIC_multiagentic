@@ -6,7 +6,8 @@
 ```text
 研究请求
   -> 本地能力发现或梧桐 ADP 在线发现
-  -> 文献 / 实验 / 分析 Partner 并行执行
+  -> 文献 / 实验 Partner 并行执行
+  -> 证据分析 Partner 审计检索结果
   -> 规范复核 Partner
   -> 带 AIP 任务轨迹的结构化研究报告
 ```
@@ -20,8 +21,10 @@
 - `start -> awaiting-completion -> complete -> completed` 状态闭环；
 - 缺少必要输入时进入 `awaiting-input`；
 - 按技能动态选择 Partner；
-- 并行执行前三个研究步骤；
-- 文献 Agent 通过 Crossref 官方 REST API 检索真实书目数据；
+- 并行执行文献检索与实验设计，随后执行证据分析和规范复核；
+- Leader 输入只包含研究问题、目标、检索范围和约束，不再要求手填数值样本；
+- 文献 Agent 并行调用 Crossref、OpenAlex、Semantic Scholar，执行去重和多源核验；
+- 可选通过统一 LLM Gateway 调用 DeepSeek 扩展英文检索词；
 - 结构化产物、规范复核与 provenance 轨迹；
 - FastAPI 接口和自动化测试。
 - Leader 本身可通过 `/rpc` 被其他智能体按 AIP 调用；
@@ -64,30 +67,49 @@ ACPs CA 签发证书执行 mTLS，并强制绑定 peer certificate AIC 与 AIP `
 
 按 `Ctrl+C` 会统一关闭全部六个服务。
 
-页面提供两项最小能力：
+页面提供一条清晰的科研协作闭环：
 
-- 填写研究问题、文献检索词、数值数据和约束，运行完整四 Agent 闭环；
-- 填写 OpenAI-compatible 接口地址、模型 ID 和 API Key，进行一次 LLM 连接测试。
-
-API Key 使用密码框，不写入 localStorage、文件或服务端配置，只在连接测试请求期间存在。
-非本机的 HTTP 上游会被拒绝，远程模型接口必须使用 HTTPS。浏览器方案仅用于本机开发；
-正式部署还需要 HTTPS、身份认证、CSRF 防护和严格的上游地址白名单。
+- 填写研究问题、目标、文献检索词和约束，运行完整四 Agent 闭环；
+- 展示每个外部文献源的可用状态、去重证据、摘要、DOI 和开放获取链接；
+- 展示证据来源、摘要、DOI、开放获取和发表年代覆盖率；
+- 前端不接收、保存或传输模型 API Key，模型配置只存在于服务器环境变量中。
 
 ## 真实文献检索
 
-文献 Agent 默认使用 [Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)
-的 `/works` 接口，以 `literature_query`（未提供时使用 `question`）检索真实论文元数据。
-Crossref 官方公开接口不要求注册或 API Key。建议在环境变量中填写联系邮箱，以使用
-polite pool：
+文献 Agent 默认并行使用以下公开学术接口，以 `literature_query`（未提供时使用
+`question`）检索真实论文元数据：
+
+- [Crossref REST API](https://www.crossref.org/documentation/retrieve-metadata/rest-api/)；
+- [OpenAlex API](https://docs.openalex.org/)；
+- [Semantic Scholar Academic Graph API](https://api.semanticscholar.org/api-docs/)。
+
+配置示例：
 
 ```powershell
+$env:RESEARCH_MESH_LITERATURE_PROVIDERS = 'crossref,openalex,semantic_scholar'
 $env:CROSSREF_MAILTO = 'team@example.com'
+$env:OPENALEX_MAILTO = 'team@example.com'
+# 可选：申请后再填写，提高相应数据源的调用额度
+$env:OPENALEX_API_KEY = 'server-side-key'
+$env:SEMANTIC_SCHOLAR_API_KEY = 'server-side-key'
 ```
 
-返回结果包含 DOI、作者、年份、期刊或会议、引用数、Crossref 相关度、数据源、检索时间和
-摘要可用状态。没有摘要时会明确标记，不会生成论文内容。系统会缓存成功结果 15 分钟；
-网络失败时保留用户提供的种子文献，并把 provider 状态标记为 `unavailable`。
-`literature_query` 会发送给 Crossref；不要在检索词中放入未公开数据或个人敏感信息。
+返回结果包含 DOI、作者、年份、摘要、期刊或会议、引用数、开放获取位置、命中数据源和
+检索时间。系统按 DOI 或规范化标题去重，并使用 Reciprocal Rank Fusion 合并多源排序。
+单个数据源失败不会阻断其他来源；全部失败时保留用户提供的种子文献。成功结果默认缓存
+15 分钟。`literature_query` 会发送给所启用的数据源，不要在检索词中放入未公开数据或
+个人敏感信息。
+
+如果 LLM Gateway 已连接 DeepSeek，可启用检索词扩展：
+
+```powershell
+$env:RESEARCH_MESH_LITERATURE_QUERY_EXPANSION = 'true'
+$env:RESEARCH_MESH_LITERATURE_MAX_QUERIES = '3'
+$env:RESEARCH_MESH_LLM_GATEWAY_URL = 'http://127.0.0.1:8020'
+```
+
+文献 Partner 会让 DeepSeek 生成少量互补英文检索式，再由服务端白名单数据源执行请求。
+LLM 或 Gateway 不可用时自动回退原始检索词，不影响基础检索。
 
 请求中可控制查询和结果数量：
 
@@ -136,10 +158,10 @@ $env:RESEARCH_MESH_LLM_GATEWAY_TOKEN = '内部网关的强随机令牌'
 临时切换模型，并限制最大输出 token。部署到非本机网络时必须设置 Gateway Token，并在
 入口增加 TLS 和访问控制。Prompt 会发送给所配置的上游服务，不应包含无权外发的数据。
 
-DeepSeek 当前可直接填写 `https://api.deepseek.com` 和模型 `deepseek-flash`。如果页面返回
-`connection failed`，说明请求尚未到达模型鉴权阶段，应先检查运行 API 服务的进程是否能
-访问公网、DNS、系统代理和防火墙；错误不是由 API Key 格式引起的。官方调用示例见
-[DeepSeek First API Call](https://api-docs.deepseek.com/quick_start/pricing/)。
+DeepSeek 配置示例：`RESEARCH_MESH_LLM_BASE_URL=https://api.deepseek.com`，模型 ID 使用
+账号实际可用的值，例如 `deepseek-flash`。如果 Gateway 返回 transport failed，应先检查
+运行 Gateway 的服务器能否访问公网、DNS、系统代理和防火墙。官方调用示例见
+[DeepSeek First API Call](https://api-docs.deepseek.com/)。
 
 ## 运行六个独立服务
 
@@ -204,13 +226,13 @@ clientAuth/serverAuth 证书签发、平台模式配置、启动和排障命令�
 .\scripts\smoke-independent.ps1
 ```
 
-第一条运行无网络依赖的单元与内存 HTTP 集成测试；第二条真实访问 Crossref 并要求至少
-返回一条文献；第三条启动六个操作系统进程，验证健康检查、ACS、LLM Gateway、跨进程
+第一条运行无网络依赖的单元与内存 HTTP 集成测试；第二条真实访问已启用的学术数据源并
+要求至少返回一条文献；第三条启动六个操作系统进程，验证健康检查、ACS、LLM Gateway、跨进程
 AIP 调用和完整四 Agent 闭环，结束后会自动清理进程。
 
 ## 仍可扩展的能力
 
 1. 让实验设计和报告综合 Agent 按任务策略调用统一 LLM Gateway；
-2. 增加全文获取、第二文献源交叉核验与受限代码执行沙箱；
+2. 增加开放全文安全抓取、PDF 分段解析与受限代码执行沙箱；
 3. 增加 ADP 多候选故障重发现、基线实验和比赛演示证据自动归档；
 4. 按平台运维约定把本地 AMP NDJSON 接入 Fluent Bit/Kafka/Monitor。

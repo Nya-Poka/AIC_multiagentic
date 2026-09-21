@@ -149,7 +149,6 @@ class ResearchLeader:
         parallel_steps = (
             ("collect-evidence", "literature-search"),
             ("design-experiment", "experiment-design"),
-            ("analyze-data", "data-analysis"),
         )
         first_results = await asyncio.gather(
             *[
@@ -166,8 +165,15 @@ class ResearchLeader:
         artifacts = {
             "literature": first_results[0][0],
             "experiment": first_results[1][0],
-            "analysis": first_results[2][0],
         }
+        analysis, analysis_trace = await self._run_agent(
+            session_id=session_id,
+            step="analyze-evidence",
+            skill="data-analysis",
+            query=f"分析文献证据覆盖范围 {request.question}",
+            payload={**base_payload, "artifacts": artifacts},
+        )
+        artifacts["analysis"] = analysis
         review, review_trace = await self._run_agent(
             session_id=session_id,
             step="review-method-and-evidence",
@@ -179,17 +185,17 @@ class ResearchLeader:
             raise AgentExecutionError(
                 f"method-review rejected the research package: {review.get('findings', [])}"
             )
-        traces = [item[1] for item in first_results] + [review_trace]
+        traces = [item[1] for item in first_results] + [analysis_trace, review_trace]
         return ResearchReport(
             session_id=session_id,
             status="completed",
             question=request.question,
             objective=request.objective,
             plan=[
-                "并行检索用户提供的文献证据",
+                "并行检索多个公开学术数据源并聚合证据",
                 "生成结构化实验方案",
-                "执行可复现的描述性统计",
-                "独立复核引用、实验控制和样本限制",
+                "分析证据来源、摘要、DOI 与开放获取覆盖率",
+                "独立复核引用、实验控制和证据限制",
             ],
             literature=artifacts["literature"],
             experiment=artifacts["experiment"],
