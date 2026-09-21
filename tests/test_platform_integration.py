@@ -68,7 +68,7 @@ def test_adp_registry_maps_discovery_response() -> None:
 
         async def handler(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
-            assert request.url.path == "/discovery/discover"
+            assert request.url.path == "/discovery/acps-adp-v2/discover"
             assert "literature-search" in body["query"]
             return httpx.Response(
                 200,

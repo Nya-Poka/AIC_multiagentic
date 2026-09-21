@@ -70,6 +70,18 @@ SKILL_TO_SLUG = {
     "method-review": "review",
 }
 
+DISCOVERY_API_PATH = "/acps-adp-v2/discover"
+
+
+def _discovery_endpoint(base_url: str) -> str:
+    """Resolve a Wutong gateway URL to the ACPs v2.2 discovery endpoint."""
+    normalized = base_url.rstrip("/")
+    if normalized.endswith(DISCOVERY_API_PATH):
+        return normalized
+    if normalized.endswith("/acps-adp-v2"):
+        return f"{normalized}/discover"
+    return f"{normalized}{DISCOVERY_API_PATH}"
+
 
 def _jsonrpc_endpoint(acs: dict[str, object]) -> str | None:
     endpoints = acs.get("endPoints")
@@ -119,7 +131,7 @@ class ADPCapabilityRegistry:
             query=" ".join(part for part in (required_skill, query.strip()) if part),
             limit=10,
         )
-        url = f"{self.base_url}/discover"
+        url = _discovery_endpoint(self.base_url)
         client_kwargs: dict[str, object] = {
             "timeout": self.timeout_seconds,
             "follow_redirects": False,
@@ -156,7 +168,9 @@ class ADPCapabilityRegistry:
         except DiscoveryUnavailableError:
             raise
         except (httpx.HTTPError, ValueError) as exc:
-            raise DiscoveryUnavailableError(f"ADP request failed: {exc}") from exc
+            raise DiscoveryUnavailableError(
+                f"ADP request failed for {url}: {exc}"
+            ) from exc
 
         if envelope.error is not None:
             raise DiscoveryUnavailableError(

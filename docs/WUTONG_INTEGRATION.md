@@ -166,6 +166,7 @@ acps-cli --config .\acps-cli.toml monitor heartbeat liveness '<AIC>'
 - TLS hostname mismatch：ACS 的 `certificate.altNames` 与公网 URL 主机名不一致，需要更新 ACS 并重新签发 serverAuth 证书。
 - AIP identity mismatch：消息 `senderId` 与 peer certificate 中的 AIC 不一致；检查是否拿错了 Agent 证书。
 - ADP request failed：先用 `discover status/query` 验证账号、网络、mTLS 和 Discovery 地址；生产验收时保持 fallback 为 `false`。
+- ADP TLS 验证同时使用系统公网 CA 与 ACPs Agent CA；`RESEARCH_MESH_LEADER_CLIENT_TRUST_BUNDLE_FILE` 仍填 ATR 下载的 trust bundle，无需手工合并系统 CA。
 - AMP 本地有日志但 Monitor 查不到：代码侧 emitter 已工作，检查 Fluent Bit/Forwarder 的采集目录、Kafka topic 和平台 Monitor 权限。
 - 经 Nginx/网关后全部身份校验失败：TLS 在代理层被终止，应用拿不到 peer certificate。改用直连端口/TCP passthrough，或实现经过安全评审的代理证书身份传递扩展。
 
