@@ -69,7 +69,18 @@ def test_adp_registry_maps_discovery_response() -> None:
         async def handler(request: httpx.Request) -> httpx.Response:
             body = json.loads(request.content)
             assert request.url.path == "/discovery/acps-adp-v2/discover"
-            assert "literature-search" in body["query"]
+            assert body["type"] == "filtered"
+            assert body["filter"] == {
+                "conditions": [
+                    {
+                        "field": "skills.id",
+                        "op": "eq",
+                        "value": "literature-search",
+                    },
+                    {"field": "active", "op": "eq", "value": True},
+                ],
+                "logic": "and",
+            }
             return httpx.Response(
                 200,
                 json={

@@ -8,7 +8,12 @@ from typing import Protocol
 from urllib.parse import urljoin, urlparse
 
 import httpx
-from acps_sdk.adp import DiscoveryRequest, DiscoveryResponse
+from acps_sdk.adp import (
+    DiscoveryFilter,
+    DiscoveryRequest,
+    DiscoveryResponse,
+    FilterCondition,
+)
 
 from .config import PlatformConfigurationError, RuntimeSettings, runtime_settings
 from .schemas import AgentDescriptor
@@ -126,10 +131,29 @@ class ADPCapabilityRegistry:
     async def discover(
         self, required_skill: str, query: str = ""
     ) -> list[AgentDescriptor]:
+        # These skill IDs are executable contracts used by the Leader, not
+        # free-form semantic labels. An explicit/semantic ADP query can rank a
+        # similarly described but wire-incompatible skill ahead of the exact
+        # contract (for example ``yanban.literature.search``). Ask ADP for the
+        # exact active skill instead so the returned RPC endpoint accepts this
+        # Leader's payload and result schema.
         request = DiscoveryRequest(
-            type="explicit",
-            query=" ".join(part for part in (required_skill, query.strip()) if part),
+            type="filtered",
             limit=10,
+            filter=DiscoveryFilter(
+                conditions=[
+                    FilterCondition(
+                        field="skills.id",
+                        op="eq",
+                        value=required_skill,
+                    ),
+                    FilterCondition(
+                        field="active",
+                        op="eq",
+                        value=True,
+                    ),
+                ]
+            ),
         )
         url = _discovery_endpoint(self.base_url)
         client_kwargs: dict[str, object] = {
