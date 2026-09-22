@@ -161,9 +161,21 @@ function renderReport(report) {
         <p class="result-meta">假设、控制条件与执行步骤</p>
       </header>
       <div class="result-body">
+        <p><strong>研究设计：</strong>${escapeHtml(experiment.design_type || "没有返回研究设计")}</p>
+        <p><strong>目标人群：</strong>${escapeHtml(experiment.population || "没有返回目标人群")}</p>
         <p><strong>研究假设：</strong>${escapeHtml(experiment.hypothesis || "没有生成假设")}</p>
+        <p><strong>干预或暴露：</strong>${escapeHtml(experiment.intervention_or_exposure || "没有返回干预或暴露定义")}</p>
+        <p><strong>主要变量</strong></p>
+        ${plainList([...(experiment.independent_variables || []), ...(experiment.dependent_variables || [])], "没有返回可测量变量")}
         <p><strong>控制条件</strong></p>
         ${plainList(experiment.controls, "没有返回控制条件")}
+        <p><strong>样本量方案：</strong>${escapeHtml(experiment.sample_size_plan || "没有返回样本量方案")}</p>
+        <p><strong>统计分析</strong></p>
+        ${plainList(experiment.analysis_plan, "没有返回统计分析方案")}
+        <p><strong>复现配置</strong></p>
+        ${plainList(experiment.reproducibility, "没有返回复现配置")}
+        <p><strong>伦理与安全</strong></p>
+        ${plainList(experiment.ethics, "没有返回伦理与安全要求")}
         <p><strong>建议步骤</strong></p>
         ${plainList(experiment.steps, "没有返回实验步骤")}
       </div>

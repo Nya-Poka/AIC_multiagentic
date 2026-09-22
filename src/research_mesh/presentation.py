@@ -58,13 +58,35 @@ def render_research_report(result: dict[str, Any]) -> str:
         lines.append("未获得可展示的文献证据；请结合检索状态与限制说明复核。")
 
     lines.extend(["", "## 实验设计"])
+    for label, key in (
+        ("研究设计", "design_type"),
+        ("因果解释边界", "causal_scope"),
+        ("目标人群", "population"),
+        ("干预或暴露", "intervention_or_exposure"),
+        ("对照设置", "comparator"),
+        ("研究周期", "duration"),
+        ("样本量方案", "sample_size_plan"),
+        ("分配方法", "allocation"),
+        ("盲法", "blinding"),
+        ("缺失数据", "missing_data_plan"),
+    ):
+        value = str(experiment.get(key) or "").strip()
+        if value:
+            lines.append(f"**{label}：** {value}")
     hypothesis = str(experiment.get("hypothesis") or "").strip()
     if hypothesis:
         lines.append(f"**研究假设：** {hypothesis}")
     for heading, key in (
+        ("纳入标准", "inclusion_criteria"),
+        ("排除标准", "exclusion_criteria"),
         ("自变量", "independent_variables"),
         ("因变量", "dependent_variables"),
         ("控制条件", "controls"),
+        ("混杂因素", "confounders"),
+        ("数据采集", "data_collection"),
+        ("统计分析", "analysis_plan"),
+        ("复现配置", "reproducibility"),
+        ("伦理与安全", "ethics"),
         ("执行步骤", "steps"),
     ):
         values = _list_items(experiment.get(key))

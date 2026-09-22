@@ -22,10 +22,16 @@ def test_render_research_report_produces_readable_text_body() -> None:
                 ]
             },
             "experiment": {
+                "design_type": "预注册的前瞻性重复测量研究",
+                "population": "在校大学生",
+                "sample_size_plan": "根据主要结局效应量、双侧α和统计功效完成先验样本量分析。",
                 "hypothesis": "睡眠时长与学习表现存在可检验关联。",
                 "independent_variables": ["平均睡眠时长"],
                 "dependent_variables": ["课程成绩", "注意力测验得分"],
                 "controls": ["年级", "专业"],
+                "analysis_plan": ["使用混合效应模型并报告效应量和95%置信区间"],
+                "reproducibility": ["预注册", "保存数据字典", "锁定依赖", "独立重跑"],
+                "ethics": ["伦理审批", "书面知情同意"],
                 "steps": ["预注册", "采集数据", "执行分析"],
             },
             "analysis": {
@@ -59,5 +65,8 @@ def test_render_research_report_produces_readable_text_body() -> None:
     assert "睡眠时长是否影响大学生" in text
     assert "Sleep and academic performance（2025），标识：10.0000/example" in text
     assert "**研究假设：** 睡眠时长与学习表现存在可检验关联。" in text
+    assert "**研究设计：** 预注册的前瞻性重复测量研究" in text
+    assert "**样本量方案：** 根据主要结局效应量" in text
+    assert "**统计分析：**" in text
     assert "[warning] 需要伦理审批" in text
     assert "会话编号：research-test" in text

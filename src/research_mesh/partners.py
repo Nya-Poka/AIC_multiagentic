@@ -17,6 +17,7 @@ from acps_sdk.aip.aip_base_model import (
 )
 from acps_sdk.aip.aip_rpc_server import CommandHandlers, DefaultHandlers, TaskManager
 
+from .experiment import experiment_plan_issues, generate_experiment_plan
 from .literature import search_literature
 from .schemas import ResearchRequest
 
@@ -212,23 +213,9 @@ async def literature_processor(payload: dict[str, Any]) -> dict[str, Any]:
     return await search_literature(request)
 
 
-def experiment_processor(payload: dict[str, Any]) -> dict[str, Any]:
+async def experiment_processor(payload: dict[str, Any]) -> dict[str, Any]:
     request = _request(payload)
-    return {
-        "hypothesis": f"围绕“{request.question}”，研究条件与目标结果之间存在可检验的关联。",
-        "independent_variables": ["研究条件（需在正式试验前具体化）"],
-        "dependent_variables": ["与研究目标一致的可观察结果指标"],
-        "controls": ["统一数据采集流程", "统一纳入与排除标准", "固定分析版本与随机种子"],
-        "steps": [
-            "登记研究假设和分析计划",
-            "按统一标准采集或导入数据",
-            "执行证据覆盖分析和质量检查",
-            "按预注册方案完成比较或建模",
-            "由独立复核智能体检查证据和方法",
-        ],
-        "constraints": request.constraints,
-        "requires_human_approval": True,
-    }
+    return await generate_experiment_plan(request)
 
 
 def analysis_processor(payload: dict[str, Any]) -> dict[str, Any]:
@@ -319,8 +306,8 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
                 ),
             }
         )
-    if not experiment.get("controls"):
-        findings.append({"severity": "error", "message": "实验方案缺少控制条件"})
+    for issue in experiment_plan_issues(experiment):
+        findings.append({"severity": "error", "message": issue})
     if analysis.get("external_count", 0) < 3:
         findings.append({"severity": "warning", "message": "外部文献证据少于 3 条，结论覆盖有限"})
     if analysis.get("doi_coverage", 0) < 0.5:
@@ -337,6 +324,11 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
             "topic-relevance",
             "query-contamination",
             "experimental-controls",
+            "experiment-field-completeness",
+            "variable-operationalization",
+            "sample-size-plan",
+            "statistical-analysis-plan",
+            "reproducibility-and-ethics",
             "minimum-sample-warning",
             "constraint-registration",
         ],
