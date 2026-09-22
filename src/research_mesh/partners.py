@@ -246,6 +246,26 @@ def analysis_processor(payload: dict[str, Any]) -> dict[str, Any]:
         for item in evidence
         if isinstance(item.get("topic_relevance_score"), (int, float))
     ]
+    directness_scores = [
+        float(item["topic_directness_score"])
+        for item in evidence
+        if isinstance(item.get("topic_directness_score"), (int, float))
+    ]
+    source_quality_scores = [
+        float(item["source_quality_score"])
+        for item in evidence
+        if isinstance(item.get("source_quality_score"), (int, float))
+    ]
+    quality_tiers: Counter[str] = Counter(
+        str(item["source_quality_tier"])
+        for item in evidence
+        if item.get("source_quality_tier")
+    )
+    evidence_types: Counter[str] = Counter(
+        str(item["evidence_type"])
+        for item in evidence
+        if item.get("evidence_type")
+    )
     with_doi = sum(bool(item.get("doi")) for item in evidence)
     with_abstract = sum(bool(item.get("has_abstract")) for item in evidence)
     open_access = sum(bool(item.get("open_access_url")) for item in evidence)
@@ -270,6 +290,21 @@ def analysis_processor(payload: dict[str, Any]) -> dict[str, Any]:
             "minimum_score": min(relevance_scores) if relevance_scores else None,
             "quality_gate": literature.get("quality_gate"),
             "rejected_count": literature.get("rejected_count", 0),
+        },
+        "evidence_quality": {
+            "mean_directness_score": (
+                round(sum(directness_scores) / len(directness_scores), 4)
+                if directness_scores
+                else None
+            ),
+            "mean_source_quality_score": (
+                round(sum(source_quality_scores) / len(source_quality_scores), 4)
+                if source_quality_scores
+                else None
+            ),
+            "source_quality_tiers": dict(sorted(quality_tiers.items())),
+            "evidence_types": dict(sorted(evidence_types.items())),
+            "deduplication": literature.get("deduplication"),
         },
         "year_min": min(years) if years else None,
         "year_max": max(years) if years else None,
@@ -312,6 +347,20 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
         findings.append({"severity": "warning", "message": "外部文献证据少于 3 条，结论覆盖有限"})
     if analysis.get("doi_coverage", 0) < 0.5:
         findings.append({"severity": "warning", "message": "不足一半的证据具有 DOI 或稳定标识"})
+    low_quality_evidence = [
+        item
+        for item in literature.get("evidence", [])
+        if isinstance(item, dict)
+        and item.get("verification") != "user-provided"
+        and item.get("source_quality_tier") == "D"
+    ]
+    if low_quality_evidence:
+        findings.append(
+            {
+                "severity": "error",
+                "message": f"仍有 {len(low_quality_evidence)} 条 D 级外部书目记录未被质量门禁过滤",
+            }
+        )
     if not request.constraints:
         findings.append({"severity": "warning", "message": "尚未登记研究约束"})
 
@@ -323,6 +372,9 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
             "citation-presence",
             "topic-relevance",
             "query-contamination",
+            "semantic-title-deduplication",
+            "source-quality-grading",
+            "topic-directness",
             "experimental-controls",
             "experiment-field-completeness",
             "variable-operationalization",

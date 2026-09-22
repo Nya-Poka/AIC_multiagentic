@@ -8,8 +8,10 @@ import math
 import os
 import re
 import time
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from difflib import SequenceMatcher
 from typing import Any, Protocol
 
 import httpx
@@ -535,7 +537,12 @@ def _rejected_record_audit(records: list[dict[str, Any]]) -> list[dict[str, Any]
             "title": record.get("title"),
             "doi": record.get("doi"),
             "topic_relevance_score": record.get("topic_relevance_score"),
+            "topic_directness_score": record.get("topic_directness_score"),
+            "source_quality_score": record.get("source_quality_score"),
+            "source_quality_tier": record.get("source_quality_tier"),
+            "evidence_type": record.get("evidence_type"),
             "matched_dimensions": record.get("matched_dimensions", []),
+            "competing_concepts": record.get("competing_concepts", []),
             "reason": record.get("quality_reason"),
             "search_query": record.get("search_query"),
         }
@@ -559,6 +566,16 @@ def _quality_gate(
         float(record.get("topic_relevance_score", 0.0))
         for record in records
     ]
+    directness_scores = [
+        float(record.get("topic_directness_score", 0.0)) for record in records
+    ]
+    source_quality_scores = [
+        float(record.get("source_quality_score", 0.0)) for record in records
+    ]
+    tier_distribution: dict[str, int] = {}
+    for record in records:
+        tier = str(record.get("source_quality_tier") or "ungraded")
+        tier_distribution[tier] = tier_distribution.get(tier, 0) + 1
     relevant_count = len(records)
     passed = relevant_count >= required_count
     return {
@@ -569,6 +586,17 @@ def _quality_gate(
         "mean_relevance_score": (
             round(sum(scores) / len(scores), 4) if scores else 0.0
         ),
+        "mean_directness_score": (
+            round(sum(directness_scores) / len(directness_scores), 4)
+            if directness_scores
+            else 0.0
+        ),
+        "mean_source_quality_score": (
+            round(sum(source_quality_scores) / len(source_quality_scores), 4)
+            if source_quality_scores
+            else 0.0
+        ),
+        "source_quality_tiers": dict(sorted(tier_distribution.items())),
         "required_dimensions": list(intent.required_dimensions),
         "reason": (
             "sufficient-topic-relevance"
@@ -605,57 +633,286 @@ def _record_key(record: dict[str, Any]) -> str | None:
     return f"title:{title}" if title else None
 
 
+def _canonical_title(value: Any) -> str:
+    if not isinstance(value, str):
+        return ""
+    folded = unicodedata.normalize("NFKC", value).casefold()
+    folded = re.sub(r"\b(?:abstract|poster|conference paper)\b\s*[:\-]?", " ", folded)
+    folded = re.sub(r"[^\w\u3400-\u9fff]+", " ", folded, flags=re.UNICODE)
+    return _WHITESPACE.sub(" ", folded).strip()
+
+
+def _title_tokens(value: Any) -> set[str]:
+    return {
+        token
+        for token in _canonical_title(value).split()
+        if len(token) > 1 or "\u3400" <= token <= "\u9fff"
+    }
+
+
+def _first_author_key(record: dict[str, Any]) -> str | None:
+    authors = record.get("authors")
+    if not isinstance(authors, list) or not authors:
+        return None
+    first = _canonical_title(str(authors[0]))
+    return first.split()[-1] if first else None
+
+
+def _duplicate_title_method(
+    left: dict[str, Any],
+    right: dict[str, Any],
+) -> str | None:
+    left_title = _canonical_title(left.get("title"))
+    right_title = _canonical_title(right.get("title"))
+    if not left_title or not right_title:
+        return None
+
+    left_year = left.get("year")
+    right_year = right.get("year")
+    if (
+        isinstance(left_year, int)
+        and isinstance(right_year, int)
+        and abs(left_year - right_year) > 1
+    ):
+        return None
+    left_author = _first_author_key(left)
+    right_author = _first_author_key(right)
+    if left_author and right_author and left_author != right_author:
+        return None
+    if left_title == right_title:
+        return "normalized-title"
+
+    left_numbers = set(re.findall(r"(?<!\w)\d+(?!\w)", left_title))
+    right_numbers = set(re.findall(r"(?<!\w)\d+(?!\w)", right_title))
+    if left_numbers != right_numbers and (left_numbers or right_numbers):
+        return None
+
+    left_tokens = _title_tokens(left_title)
+    right_tokens = _title_tokens(right_title)
+    if not left_tokens or not right_tokens:
+        return None
+    intersection = len(left_tokens & right_tokens)
+    union = len(left_tokens | right_tokens)
+    jaccard = intersection / union
+    containment = intersection / min(len(left_tokens), len(right_tokens))
+    sequence = SequenceMatcher(None, left_title, right_title).ratio()
+    authors_confirmed = bool(left_author and right_author and left_author == right_author)
+    if (
+        (authors_confirmed and sequence >= 0.96 and jaccard >= 0.80)
+        or (sequence >= 0.95 and jaccard >= 0.90 and containment >= 0.95)
+    ):
+        return "near-duplicate-title"
+    return None
+
+
+def _deduplication_metadata(record: dict[str, Any]) -> dict[str, Any]:
+    existing = record.get("deduplication")
+    count = 1
+    methods: list[str] = []
+    alternate_dois: list[str] = []
+    alternate_titles: list[str] = []
+    if isinstance(existing, dict):
+        count = max(1, int(existing.get("merged_record_count", 1)))
+        methods = [str(item) for item in existing.get("match_methods", [])]
+        alternate_dois = [str(item) for item in existing.get("alternate_dois", [])]
+        alternate_titles = [str(item) for item in existing.get("alternate_titles", [])]
+    return {
+        "merged_record_count": count,
+        "match_methods": methods,
+        "alternate_dois": alternate_dois,
+        "alternate_titles": alternate_titles,
+    }
+
+
+def _merge_record_into(
+    current: dict[str, Any],
+    record: dict[str, Any],
+    *,
+    method: str,
+) -> None:
+    current["_rrf_score"] = float(current.get("_rrf_score", 0.0)) + float(
+        record.get("_rrf_score", 0.0)
+    )
+    current["providers"] = sorted(
+        set(current.get("providers", [])) | set(record.get("providers", []))
+    )
+    current.setdefault("source_ids", {}).update(record.get("source_ids", {}))
+
+    metadata = _deduplication_metadata(current)
+    incoming_metadata = _deduplication_metadata(record)
+    metadata["merged_record_count"] += incoming_metadata["merged_record_count"]
+    metadata["match_methods"] = sorted(
+        set(metadata["match_methods"])
+        | set(incoming_metadata["match_methods"])
+        | {method}
+    )
+    current_doi = _normalise_doi(current.get("doi") or current.get("identifier"))
+    incoming_doi = _normalise_doi(record.get("doi") or record.get("identifier"))
+    metadata["alternate_dois"] = sorted(
+        {
+            *metadata["alternate_dois"],
+            *incoming_metadata["alternate_dois"],
+            *(
+                [incoming_doi]
+                if incoming_doi and incoming_doi != current_doi
+                else []
+            ),
+        }
+    )
+    current_title = str(current.get("title") or "").strip()
+    incoming_title = str(record.get("title") or "").strip()
+    metadata["alternate_titles"] = sorted(
+        {
+            *metadata["alternate_titles"],
+            *incoming_metadata["alternate_titles"],
+            *(
+                [incoming_title]
+                if incoming_title
+                and _canonical_title(incoming_title) != _canonical_title(current_title)
+                else []
+            ),
+        }
+    )
+    current["deduplication"] = metadata
+
+    for field in (
+        "doi",
+        "identifier",
+        "url",
+        "open_access_url",
+        "venue",
+        "publisher",
+        "work_type",
+        "language",
+        "year",
+    ):
+        if not current.get(field) and record.get(field):
+            current[field] = record[field]
+    if not current.get("has_abstract") and record.get("has_abstract"):
+        current["summary"] = record.get("summary")
+        current["has_abstract"] = True
+    current["authors"] = current.get("authors") or record.get("authors") or []
+    for field in ("cited_by_count", "reference_count"):
+        values = [
+            value
+            for value in (current.get(field), record.get(field))
+            if isinstance(value, int)
+        ]
+        current[field] = max(values) if values else None
+
+    search_queries = {
+        str(item)
+        for item in current.get("search_queries", [])
+        if str(item).strip()
+    }
+    search_queries.update(
+        str(item)
+        for item in record.get("search_queries", [])
+        if str(item).strip()
+    )
+    for candidate in (current.get("search_query"), record.get("search_query")):
+        if isinstance(candidate, str) and candidate.strip():
+            search_queries.add(candidate.strip())
+    if search_queries:
+        current["search_queries"] = sorted(search_queries)
+
+
 def _merge_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    merged: dict[str, dict[str, Any]] = {}
+    merged: list[dict[str, Any]] = []
+    doi_index: dict[str, int] = {}
+    title_token_index: dict[str, set[int]] = {}
+    title_prefix_index: dict[str, set[int]] = {}
+    title_number_index: dict[frozenset[str], set[int]] = {}
     for raw in records:
-        key = _record_key(raw)
-        if key is None:
+        if _record_key(raw) is None:
             continue
         record = copy.deepcopy(raw)
-        if key not in merged:
-            record["_rrf_score"] = float(record.get("_rrf_score", 0.0))
-            merged[key] = record
-            continue
-        current = merged[key]
-        current["_rrf_score"] = float(current.get("_rrf_score", 0.0)) + float(
-            record.get("_rrf_score", 0.0)
-        )
-        current["providers"] = sorted(
-            set(current.get("providers", [])) | set(record.get("providers", []))
-        )
-        current.setdefault("source_ids", {}).update(record.get("source_ids", {}))
-        for field in (
-            "doi",
-            "identifier",
-            "url",
-            "open_access_url",
-            "venue",
-            "publisher",
-            "work_type",
-            "language",
-            "year",
-        ):
-            if not current.get(field) and record.get(field):
-                current[field] = record[field]
-        if not current.get("has_abstract") and record.get("has_abstract"):
-            current["summary"] = record.get("summary")
-            current["has_abstract"] = True
-        current["authors"] = current.get("authors") or record.get("authors") or []
-        for field in ("cited_by_count", "reference_count"):
-            values = [
-                value
-                for value in (current.get(field), record.get(field))
-                if isinstance(value, int)
-            ]
-            current[field] = max(values) if values else None
+        doi = _normalise_doi(record.get("doi") or record.get("identifier"))
+        match_index = doi_index.get(doi) if doi else None
+        method = "doi" if match_index is not None else None
+        if match_index is None:
+            title_tokens = _title_tokens(record.get("title"))
+            canonical_title = _canonical_title(record.get("title"))
+            title_prefix = canonical_title[:16]
+            title_numbers = frozenset(
+                re.findall(r"(?<!\w)\d+(?!\w)", canonical_title)
+            )
+            candidate_indexes: set[int] = set()
+            if title_numbers:
+                candidate_indexes.update(title_number_index.get(title_numbers, set()))
+            elif len(title_tokens) > 1:
+                indexed_sets = sorted(
+                    (
+                        title_token_index[token]
+                        for token in title_tokens
+                        if token in title_token_index
+                    ),
+                    key=len,
+                )
+                if indexed_sets:
+                    candidate_indexes = set(indexed_sets[0])
+                    for indexes in indexed_sets[1:3]:
+                        candidate_indexes.intersection_update(indexes)
+            elif title_prefix:
+                candidate_indexes.update(title_prefix_index.get(title_prefix, set()))
+            for index in sorted(candidate_indexes):
+                current = merged[index]
+                title_method = _duplicate_title_method(current, record)
+                if title_method:
+                    match_index = index
+                    method = title_method
+                    break
 
-    output = list(merged.values())
-    for record in output:
+        if match_index is None:
+            record["_rrf_score"] = float(record.get("_rrf_score", 0.0))
+            record["deduplication"] = _deduplication_metadata(record)
+            merged.append(record)
+            new_index = len(merged) - 1
+            if doi:
+                doi_index[doi] = new_index
+            for token in _title_tokens(record.get("title")):
+                title_token_index.setdefault(token, set()).add(new_index)
+            prefix = _canonical_title(record.get("title"))[:16]
+            if prefix:
+                title_prefix_index.setdefault(prefix, set()).add(new_index)
+            numbers = frozenset(
+                re.findall(
+                    r"(?<!\w)\d+(?!\w)",
+                    _canonical_title(record.get("title")),
+                )
+            )
+            if numbers:
+                title_number_index.setdefault(numbers, set()).add(new_index)
+            continue
+        current = merged[match_index]
+        _merge_record_into(current, record, method=method or "unknown")
+        for candidate_doi in (
+            doi,
+            _normalise_doi(current.get("doi") or current.get("identifier")),
+            *current.get("deduplication", {}).get("alternate_dois", []),
+        ):
+            if candidate_doi:
+                doi_index[str(candidate_doi)] = match_index
+        for token in _title_tokens(record.get("title")):
+            title_token_index.setdefault(token, set()).add(match_index)
+        prefix = _canonical_title(record.get("title"))[:16]
+        if prefix:
+            title_prefix_index.setdefault(prefix, set()).add(match_index)
+        numbers = frozenset(
+            re.findall(
+                r"(?<!\w)\d+(?!\w)",
+                _canonical_title(record.get("title")),
+            )
+        )
+        if numbers:
+            title_number_index.setdefault(numbers, set()).add(match_index)
+
+    for record in merged:
         providers = record.get("providers", [])
         record["source_count"] = len(providers)
         if len(providers) > 1:
             record["verification"] = "multi-source-metadata"
-    return output
+    return merged
 
 
 async def _run_provider(
@@ -778,6 +1035,16 @@ async def search_literature(
         0.6,
         minimum=0.0,
     )
+    minimum_directness = _env_float(
+        "RESEARCH_MESH_LITERATURE_MIN_DIRECTNESS",
+        0.55,
+        minimum=0.0,
+    )
+    minimum_source_quality = _env_float(
+        "RESEARCH_MESH_LITERATURE_MIN_SOURCE_QUALITY",
+        0.35,
+        minimum=0.0,
+    )
     auto_retry = _env_bool("RESEARCH_MESH_LITERATURE_AUTO_RETRY", True)
 
     cache_ttl = _env_int(
@@ -791,6 +1058,8 @@ async def search_literature(
         rows,
         fetch_rows,
         minimum_score,
+        minimum_directness,
+        minimum_source_quality,
         minimum_ratio,
         tuple(provider.name for provider in providers),
         tuple(queries),
@@ -812,6 +1081,8 @@ async def search_literature(
         candidate_records,
         intent,
         minimum_score=minimum_score,
+        minimum_directness=minimum_directness,
+        minimum_source_quality=minimum_source_quality,
     )
 
     initial_gate = _quality_gate(
@@ -850,6 +1121,8 @@ async def search_literature(
                 candidate_records,
                 intent,
                 minimum_score=minimum_score,
+                minimum_directness=minimum_directness,
+                minimum_source_quality=minimum_source_quality,
             )
 
     external_records = accepted_records[:rows]
@@ -891,6 +1164,19 @@ async def search_literature(
         limitations.append(f"{missing_abstracts} 条外部记录没有摘要。")
     if planner_error:
         limitations.append("LLM 检索词扩展不可用，本次使用原始检索词。")
+    indirect_rejections = sum(
+        record.get("quality_reason")
+        in {"competing-primary-topic", "insufficient-topic-directness"}
+        for record in rejected_records
+    )
+    low_quality_rejections = sum(
+        record.get("quality_reason") == "insufficient-source-quality"
+        for record in rejected_records
+    )
+    if indirect_rejections:
+        limitations.append(f"已过滤 {indirect_rejections} 条主题关系不直接的候选记录。")
+    if low_quality_rejections:
+        limitations.append(f"已过滤 {low_quality_rejections} 条书目质量不足的候选记录。")
     if not quality_gate["passed"]:
         limitations.append(
             "主题相关证据未达到质量门禁，结果不得用于形成确定性结论。"
@@ -916,6 +1202,29 @@ async def search_literature(
             item.get("verification") == "user-provided" for item in evidence
         ),
         "fabricated_citations": 0,
+        "deduplication": {
+            "strategy": "doi-plus-normalized-and-near-duplicate-title",
+            "unique_candidate_count": len(candidate_records),
+            "retrieved_record_count": sum(
+                int(record.get("deduplication", {}).get("merged_record_count", 1))
+                for record in candidate_records
+            ),
+            "duplicate_records_removed": sum(
+                max(
+                    0,
+                    int(record.get("deduplication", {}).get("merged_record_count", 1))
+                    - 1,
+                )
+                for record in candidate_records
+            ),
+            "title_duplicate_groups": sum(
+                any(
+                    method in {"normalized-title", "near-duplicate-title"}
+                    for method in record.get("deduplication", {}).get("match_methods", [])
+                )
+                for record in candidate_records
+            ),
+        },
         "quality_gate": quality_gate,
         "rejected_count": len(rejected_records),
         "rejected_records": _rejected_record_audit(rejected_records),

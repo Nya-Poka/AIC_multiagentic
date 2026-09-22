@@ -239,7 +239,18 @@ class RelevanceAssessment:
     matched_concepts: tuple[str, ...]
     keyword_coverage: float
     concept_coverage: float
+    title_dimension_coverage: float
+    directness_score: float
+    competing_concepts: tuple[str, ...]
     reason: str
+
+
+@dataclass(frozen=True)
+class SourceQualityAssessment:
+    score: float
+    tier: str
+    evidence_type: str
+    reasons: tuple[str, ...]
 
 
 def _normalise(value: str) -> str:
@@ -326,7 +337,9 @@ def assess_record_relevance(
     intent: ResearchSearchIntent,
     *,
     minimum_score: float,
+    minimum_directness: float = 0.45,
 ) -> RelevanceAssessment:
+    title = _normalise(str(record.get("title") or ""))
     text = _normalise(
         " ".join(
             str(record.get(field) or "")
@@ -341,9 +354,38 @@ def assess_record_relevance(
             matched_dimensions.append(dimension.name)
             matched_concepts.extend(aliases[:3])
 
+    title_dimensions: list[str] = []
+    for dimension in intent.dimensions:
+        if any(_contains(title, alias) for alias in dimension.aliases):
+            title_dimensions.append(dimension.name)
+
     required = set(intent.required_dimensions)
     required_matches = required.intersection(matched_dimensions)
     concept_coverage = len(required_matches) / len(required) if required else 1.0
+    title_required_matches = required.intersection(title_dimensions)
+    title_dimension_coverage = (
+        len(title_required_matches) / len(required) if required else 1.0
+    )
+    directness_score = (
+        0.7 * title_dimension_coverage + 0.3 * concept_coverage
+        if required
+        else 1.0
+    )
+    requested_exposures = {
+        label
+        for dimension in intent.dimensions
+        if dimension.name == "exposure"
+        for label in dimension.labels
+    }
+    competing_concepts = _unique(
+        [
+            concept.label
+            for concept in _CONCEPTS
+            if concept.dimension == "exposure"
+            and concept.label not in requested_exposures
+            and any(_contains(title, alias) for alias in concept.aliases)
+        ]
+    )
     keyword_hits = sum(_contains(text, keyword) for keyword in intent.keywords)
     keyword_coverage = (
         keyword_hits / len(intent.keywords) if intent.keywords else 0.0
@@ -358,18 +400,29 @@ def assess_record_relevance(
 
     if required:
         score = (
-            0.58 * concept_coverage
-            + 0.20 * keyword_coverage
+            0.45 * concept_coverage
+            + 0.17 * keyword_coverage
+            + 0.16 * directness_score
             + 0.12 * rrf_score
             + 0.07 * provider_score
             + 0.03 * multi_source
         )
-        accepted = required.issubset(matched_dimensions) and score >= minimum_score
+        competing_primary_topic = bool(competing_concepts) and title_dimension_coverage < 1.0
+        accepted = (
+            required.issubset(matched_dimensions)
+            and score >= minimum_score
+            and directness_score >= minimum_directness
+            and not competing_primary_topic
+        )
         reason = (
             "accepted"
             if accepted
             else "missing-required-dimension"
             if not required.issubset(matched_dimensions)
+            else "competing-primary-topic"
+            if competing_primary_topic
+            else "insufficient-topic-directness"
+            if directness_score < minimum_directness
             else "below-relevance-threshold"
         )
     else:
@@ -390,7 +443,78 @@ def assess_record_relevance(
         matched_concepts=_unique(matched_concepts),
         keyword_coverage=round(keyword_coverage, 4),
         concept_coverage=round(concept_coverage, 4),
+        title_dimension_coverage=round(title_dimension_coverage, 4),
+        directness_score=round(directness_score, 4),
+        competing_concepts=competing_concepts,
         reason=reason,
+    )
+
+
+def assess_source_quality(record: dict[str, Any]) -> SourceQualityAssessment:
+    """Grade metadata completeness without claiming that a paper is scientifically true."""
+
+    score = 0.0
+    reasons: list[str] = []
+    if record.get("doi"):
+        score += 0.22
+        reasons.append("persistent-identifier")
+    if record.get("has_abstract"):
+        score += 0.25
+        reasons.append("abstract-available")
+    if record.get("venue"):
+        score += 0.10
+        reasons.append("venue-identified")
+    if record.get("authors"):
+        score += 0.08
+        reasons.append("authors-identified")
+    if isinstance(record.get("year"), int):
+        score += 0.05
+        reasons.append("publication-year-identified")
+
+    work_type = str(record.get("work_type") or "").casefold()
+    if any(term in work_type for term in ("review", "meta-analysis")):
+        evidence_type = "evidence-synthesis"
+        score += 0.08
+        reasons.append("evidence-synthesis-metadata")
+    elif any(term in work_type for term in ("journal", "article")):
+        evidence_type = "journal-article"
+        score += 0.08
+        reasons.append("article-type-identified")
+    elif any(term in work_type for term in ("proceeding", "conference", "abstract")):
+        evidence_type = "conference-material"
+        score += 0.03
+        reasons.append("conference-material")
+    elif any(term in work_type for term in ("preprint", "posted-content")):
+        evidence_type = "preprint"
+        score += 0.02
+        reasons.append("not-formally-published")
+    else:
+        evidence_type = "unclassified-scholarly-record"
+
+    providers = record.get("providers")
+    provider_count = len(providers) if isinstance(providers, list) else 0
+    if provider_count > 1:
+        score += 0.06
+        reasons.append("multi-source-metadata")
+    elif record.get("verification") and record.get("provider"):
+        score += 0.08
+        reasons.append("provider-verified-metadata")
+
+    citations = record.get("cited_by_count")
+    if isinstance(citations, int) and citations > 0:
+        score += min(0.05, math.log1p(citations) / 100)
+        reasons.append("citation-metadata-available")
+    if record.get("open_access_url"):
+        score += 0.03
+        reasons.append("open-access-location")
+
+    score = round(min(1.0, score), 4)
+    tier = "A" if score >= 0.80 else "B" if score >= 0.65 else "C" if score >= 0.45 else "D"
+    return SourceQualityAssessment(
+        score=score,
+        tier=tier,
+        evidence_type=evidence_type,
+        reasons=tuple(reasons),
     )
 
 
@@ -399,6 +523,8 @@ def annotate_and_filter_records(
     intent: ResearchSearchIntent,
     *,
     minimum_score: float,
+    minimum_directness: float = 0.45,
+    minimum_source_quality: float = 0.35,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     accepted: list[dict[str, Any]] = []
     rejected: list[dict[str, Any]] = []
@@ -408,6 +534,17 @@ def annotate_and_filter_records(
             record,
             intent,
             minimum_score=minimum_score,
+            minimum_directness=minimum_directness,
+        )
+        source_quality = assess_source_quality(record)
+        accepted_record = assessment.accepted and source_quality.score >= minimum_source_quality
+        reason = assessment.reason
+        if assessment.accepted and source_quality.score < minimum_source_quality:
+            reason = "insufficient-source-quality"
+        ranking_score = (
+            0.65 * assessment.score
+            + 0.20 * assessment.directness_score
+            + 0.15 * source_quality.score
         )
         record.update(
             {
@@ -416,15 +553,25 @@ def annotate_and_filter_records(
                 "matched_concepts": list(assessment.matched_concepts),
                 "keyword_coverage": assessment.keyword_coverage,
                 "concept_coverage": assessment.concept_coverage,
-                "quality_decision": "accepted" if assessment.accepted else "rejected",
-                "quality_reason": assessment.reason,
+                "title_dimension_coverage": assessment.title_dimension_coverage,
+                "topic_directness_score": assessment.directness_score,
+                "competing_concepts": list(assessment.competing_concepts),
+                "source_quality_score": source_quality.score,
+                "source_quality_tier": source_quality.tier,
+                "source_quality_reasons": list(source_quality.reasons),
+                "evidence_type": source_quality.evidence_type,
+                "ranking_score": round(ranking_score, 4),
+                "quality_decision": "accepted" if accepted_record else "rejected",
+                "quality_reason": reason,
             }
         )
-        (accepted if assessment.accepted else rejected).append(record)
+        (accepted if accepted_record else rejected).append(record)
 
     accepted.sort(
         key=lambda record: (
+            float(record.get("ranking_score", 0.0)),
             float(record.get("topic_relevance_score", 0.0)),
+            float(record.get("source_quality_score", 0.0)),
             float(record.get("_rrf_score", 0.0)),
             bool(record.get("has_abstract")),
             math.log1p(record.get("cited_by_count") or 0),

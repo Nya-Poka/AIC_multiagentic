@@ -103,6 +103,10 @@ def render_research_report(result: dict[str, Any]) -> str:
             f"- DOI 覆盖率：{analysis.get('doi_coverage', 0)}",
             f"- 摘要覆盖率：{analysis.get('abstract_coverage', 0)}",
             f"- 开放获取覆盖率：{analysis.get('open_access_coverage', 0)}",
+            f"- 平均主题直接性：{(analysis.get('evidence_quality') or {}).get('mean_directness_score', '未评分')}",
+            f"- 平均来源质量：{(analysis.get('evidence_quality') or {}).get('mean_source_quality_score', '未评分')}",
+            f"- 来源质量等级：{(analysis.get('evidence_quality') or {}).get('source_quality_tiers', {})}",
+            f"- 去除重复候选：{((analysis.get('evidence_quality') or {}).get('deduplication') or {}).get('duplicate_records_removed', 0)}",
             "",
             "## 方法与规范复核",
             f"**复核结论：** {review.get('decision', '未提供')}（"

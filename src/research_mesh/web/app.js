@@ -134,6 +134,8 @@ function renderReport(report) {
   const experiment = report.experiment || {};
   const analysis = report.analysis || {};
   const review = report.review || {};
+  const evidenceQuality = analysis.evidence_quality || {};
+  const deduplication = evidenceQuality.deduplication || {};
   const provider = literature.provider || {};
   const provenance = report.provenance || [];
   const reviewFindings = Array.isArray(review.findings)
@@ -195,6 +197,9 @@ function renderReport(report) {
           ${metric("DOI 覆盖", formatPercent(analysis.doi_coverage))}
           ${metric("摘要覆盖", formatPercent(analysis.abstract_coverage))}
           ${metric("开放获取", formatPercent(analysis.open_access_coverage))}
+          ${metric("主题直接性", formatNumber(evidenceQuality.mean_directness_score))}
+          ${metric("来源质量", formatNumber(evidenceQuality.mean_source_quality_score))}
+          ${metric("去除重复", deduplication.duplicate_records_removed ?? 0)}
           ${metric("最早年份", analysis.year_min ?? "—")}
           ${metric("最新年份", analysis.year_max ?? "—")}
         </div>
