@@ -20,6 +20,11 @@ from .llm import (
     LLMMessage,
     LLMProviderError,
 )
+from .retrieval_quality import (
+    ResearchSearchIntent,
+    annotate_and_filter_records,
+    build_search_intent,
+)
 from .schemas import ResearchRequest, SourceDocument
 
 
@@ -30,10 +35,7 @@ class LiteratureProviderError(RuntimeError):
 _HTML_TAG = re.compile(r"<[^>]+>")
 _WHITESPACE = re.compile(r"\s+")
 _DOI = re.compile(r"^10\.\d{4,9}/\S+$", re.IGNORECASE)
-_CACHE: dict[
-    tuple[str, int, tuple[str, ...], tuple[str, ...]],
-    tuple[float, dict[str, Any]],
-] = {}
+_CACHE: dict[tuple[Any, ...], tuple[float, dict[str, Any]]] = {}
 
 
 def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
@@ -527,6 +529,55 @@ def _unique_queries(values: list[Any], *, limit: int) -> list[str]:
     return output
 
 
+def _rejected_record_audit(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "title": record.get("title"),
+            "doi": record.get("doi"),
+            "topic_relevance_score": record.get("topic_relevance_score"),
+            "matched_dimensions": record.get("matched_dimensions", []),
+            "reason": record.get("quality_reason"),
+            "search_query": record.get("search_query"),
+        }
+        for record in records[:10]
+    ]
+
+
+def _quality_gate(
+    records: list[dict[str, Any]],
+    *,
+    requested_count: int,
+    minimum_ratio: float,
+    minimum_score: float,
+    intent: ResearchSearchIntent,
+) -> dict[str, Any]:
+    required_count = min(
+        requested_count,
+        max(1, math.ceil(requested_count * min(1.0, minimum_ratio))),
+    )
+    scores = [
+        float(record.get("topic_relevance_score", 0.0))
+        for record in records
+    ]
+    relevant_count = len(records)
+    passed = relevant_count >= required_count
+    return {
+        "passed": passed,
+        "relevant_count": relevant_count,
+        "required_count": required_count,
+        "minimum_relevance_score": minimum_score,
+        "mean_relevance_score": (
+            round(sum(scores) / len(scores), 4) if scores else 0.0
+        ),
+        "required_dimensions": list(intent.required_dimensions),
+        "reason": (
+            "sufficient-topic-relevance"
+            if passed
+            else "insufficient-topic-relevance"
+        ),
+    }
+
+
 def _seed_record(document: SourceDocument) -> dict[str, Any]:
     record = document.model_dump(mode="json")
     doi = _normalise_doi(document.identifier)
@@ -693,17 +744,41 @@ async def search_literature(
         else _providers_from_environment()
     )
 
+    intent = build_search_intent(request.question, query)
+    queries = _unique_queries(
+        [query, *intent.suggested_queries()],
+        limit=5,
+    ) or [query]
+
     planner = query_planner
     if planner is None and _env_bool("RESEARCH_MESH_LITERATURE_QUERY_EXPANSION"):
         planner = DeepSeekQueryPlanner.from_environment()
-    queries = [query]
     planner_error: str | None = None
     if planner is not None:
         try:
             planned = await planner.plan(request.question, query)
-            queries = _unique_queries([query, *planned], limit=5) or [query]
+            queries = _unique_queries([*queries, *planned], limit=5) or [query]
         except (LLMProviderError, ValueError) as exc:
             planner_error = f"{type(exc).__name__}: {exc}"
+
+    fetch_multiplier = _env_int(
+        "RESEARCH_MESH_LITERATURE_FETCH_MULTIPLIER",
+        5,
+        minimum=1,
+        maximum=20,
+    )
+    fetch_rows = min(100, max(rows, rows * fetch_multiplier))
+    minimum_score = _env_float(
+        "RESEARCH_MESH_LITERATURE_MIN_RELEVANCE",
+        0.35,
+        minimum=0.0,
+    )
+    minimum_ratio = _env_float(
+        "RESEARCH_MESH_LITERATURE_MIN_RELEVANT_RATIO",
+        0.6,
+        minimum=0.0,
+    )
+    auto_retry = _env_bool("RESEARCH_MESH_LITERATURE_AUTO_RETRY", True)
 
     cache_ttl = _env_int(
         "RESEARCH_MESH_LITERATURE_CACHE_TTL_SECONDS",
@@ -714,6 +789,9 @@ async def search_literature(
     cache_key = (
         query,
         rows,
+        fetch_rows,
+        minimum_score,
+        minimum_ratio,
         tuple(provider.name for provider in providers),
         tuple(queries),
     )
@@ -725,20 +803,63 @@ async def search_literature(
 
     retrieved_at = datetime.now(timezone.utc).isoformat()
     provider_runs = await asyncio.gather(
-        *[_run_provider(provider, queries, rows) for provider in providers]
+        *[_run_provider(provider, queries, fetch_rows) for provider in providers]
     )
-    external_records = _merge_records(
+    candidate_records = _merge_records(
         [record for records, _status in provider_runs for record in records]
     )
-    external_records.sort(
-        key=lambda record: (
-            float(record.get("_rrf_score", 0.0)),
-            bool(record.get("has_abstract")),
-            math.log1p(record.get("cited_by_count") or 0),
-        ),
-        reverse=True,
+    accepted_records, rejected_records = annotate_and_filter_records(
+        candidate_records,
+        intent,
+        minimum_score=minimum_score,
     )
-    external_records = external_records[:rows]
+
+    initial_gate = _quality_gate(
+        accepted_records[:rows],
+        requested_count=rows,
+        minimum_ratio=minimum_ratio,
+        minimum_score=minimum_score,
+        intent=intent,
+    )
+    retry_queries: list[str] = []
+    retry_runs: list[tuple[list[dict[str, Any]], dict[str, Any]]] = []
+    if auto_retry and not initial_gate["passed"]:
+        retry_queries = [
+            retry_query
+            for retry_query in _unique_queries(intent.retry_queries(), limit=3)
+            if retry_query.casefold() not in {item.casefold() for item in queries}
+        ]
+        if retry_queries:
+            retry_runs = await asyncio.gather(
+                *[
+                    _run_provider(provider, retry_queries, fetch_rows)
+                    for provider in providers
+                ]
+            )
+            candidate_records = _merge_records(
+                [
+                    *candidate_records,
+                    *[
+                        record
+                        for records, _status in retry_runs
+                        for record in records
+                    ],
+                ]
+            )
+            accepted_records, rejected_records = annotate_and_filter_records(
+                candidate_records,
+                intent,
+                minimum_score=minimum_score,
+            )
+
+    external_records = accepted_records[:rows]
+    quality_gate = _quality_gate(
+        external_records,
+        requested_count=rows,
+        minimum_ratio=minimum_ratio,
+        minimum_score=minimum_score,
+        intent=intent,
+    )
     for record in external_records:
         record.pop("_rrf_score", None)
 
@@ -770,6 +891,10 @@ async def search_literature(
         limitations.append(f"{missing_abstracts} 条外部记录没有摘要。")
     if planner_error:
         limitations.append("LLM 检索词扩展不可用，本次使用原始检索词。")
+    if not quality_gate["passed"]:
+        limitations.append(
+            "主题相关证据未达到质量门禁，结果不得用于形成确定性结论。"
+        )
 
     result = {
         "query": query,
@@ -778,6 +903,11 @@ async def search_literature(
             "expanded": len(queries) > 1,
             "planner": "deepseek-via-llm-gateway" if planner is not None else "disabled",
             "error": planner_error,
+            "intent": intent.as_dict(),
+            "candidate_fetch_rows": fetch_rows,
+            "candidate_count": len(candidate_records),
+            "retry_performed": bool(retry_runs),
+            "retry_queries": retry_queries,
         },
         "evidence": evidence,
         "count": len(evidence),
@@ -786,6 +916,9 @@ async def search_literature(
             item.get("verification") == "user-provided" for item in evidence
         ),
         "fabricated_citations": 0,
+        "quality_gate": quality_gate,
+        "rejected_count": len(rejected_records),
+        "rejected_records": _rejected_record_audit(rejected_records),
         "provider": {
             "name": " + ".join(provider.name for provider in providers),
             "status": aggregate_status,

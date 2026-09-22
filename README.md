@@ -95,10 +95,25 @@ $env:SEMANTIC_SCHOLAR_API_KEY = 'server-side-key'
 ```
 
 返回结果包含 DOI、作者、年份、摘要、期刊或会议、引用数、开放获取位置、命中数据源和
-检索时间。系统按 DOI 或规范化标题去重，并使用 Reciprocal Rank Fusion 合并多源排序。
-单个数据源失败不会阻断其他来源；全部失败时保留用户提供的种子文献。成功结果默认缓存
-15 分钟。`literature_query` 会发送给所启用的数据源，不要在检索词中放入未公开数据或
-个人敏感信息。
+检索时间。系统先剥离叮当路由、DAG 摘要等平台包装，再把研究问题拆成人群、暴露/干预、
+结果和测量维度；按 DOI 或规范化标题去重，并结合 Reciprocal Rank Fusion、概念覆盖和
+关键词覆盖进行主题相关性重排。候选池默认是最终结果数的 5 倍，相关证据不足时使用干净的
+同义检索式自动重试。仍未达到质量门禁时，Review 会拒绝形成确定性报告，而不是用无关文献
+补足数量。单个数据源失败不会阻断其他来源；全部失败时保留用户提供的种子文献。成功结果
+默认缓存 15 分钟。`literature_query` 会发送给所启用的数据源，不要在检索词中放入未公开
+数据或个人敏感信息。
+
+质量控制参数：
+
+```powershell
+$env:RESEARCH_MESH_LITERATURE_FETCH_MULTIPLIER = '5'
+$env:RESEARCH_MESH_LITERATURE_MIN_RELEVANCE = '0.35'
+$env:RESEARCH_MESH_LITERATURE_MIN_RELEVANT_RATIO = '0.6'
+$env:RESEARCH_MESH_LITERATURE_AUTO_RETRY = 'true'
+```
+
+文献产物同时记录结构化研究意图、实际查询、候选数、每条证据的相关性分数与命中概念、
+被过滤记录及原因、自动重试查询和最终质量门禁结论，便于复核检索过程。
 
 如果 LLM Gateway 已连接 DeepSeek，可启用检索词扩展：
 

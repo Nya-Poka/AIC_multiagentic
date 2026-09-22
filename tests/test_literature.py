@@ -18,7 +18,7 @@ def test_crossref_metadata_is_mapped_to_auditable_evidence() -> None:
     async def scenario() -> None:
         def handler(request: httpx.Request) -> httpx.Response:
             assert request.url.params["query.bibliographic"] == "study time outcomes"
-            assert request.url.params["rows"] == "3"
+            assert request.url.params["rows"] == "15"
             assert request.url.params["mailto"] == "team@example.test"
             assert "authorization" not in request.headers
             return httpx.Response(
@@ -255,10 +255,157 @@ def test_query_planner_expands_queries_without_becoming_a_hard_dependency() -> N
             ),
             query_planner=Planner(),
         )
-        assert observed == [
+        assert observed[:2] == [
             "study time academic performance test scores",
             "academic achievement study duration",
         ]
+        assert "academic achievement" in observed
         assert result["query_plan"]["expanded"] is True
+        assert result["query_plan"]["retry_performed"] is True
+
+    asyncio.run(scenario())
+
+
+def test_topic_relevance_filters_polluted_records_and_records_audit() -> None:
+    async def scenario() -> None:
+        def handler(_request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "message": {
+                        "total-results": 3,
+                        "items": [
+                            {
+                                "DOI": "10.1000/nap-attention-1",
+                                "title": [
+                                    "Daytime nap duration and sustained attention in college students"
+                                ],
+                                "abstract": (
+                                    "A daytime nap was associated with sustained attention "
+                                    "and vigilance among university students."
+                                ),
+                            },
+                            {
+                                "DOI": "10.1000/nap-attention-2",
+                                "title": [
+                                    "Napping and cognitive performance among undergraduates"
+                                ],
+                                "abstract": (
+                                    "Nap duration and cognitive performance were measured "
+                                    "with a psychomotor vigilance test."
+                                ),
+                            },
+                            {
+                                "DOI": "10.1000/multi-agent",
+                                "title": ["Multi-agent RPC collaboration platform"],
+                                "abstract": (
+                                    "A software architecture for DAG orchestration and RPC routing."
+                                ),
+                            },
+                        ],
+                    },
+                },
+            )
+
+        clear_literature_cache()
+        request = sample_request().model_copy(
+            update={
+                "question": "每日午睡时长是否影响大学生下午的持续注意力表现？",
+                "objective": "检索证据并设计可复现研究。",
+                "literature_query": (
+                    "college students daytime nap duration sustained attention"
+                ),
+                "documents": [],
+                "max_literature_results": 3,
+            }
+        )
+        result = await search_literature(
+            request,
+            client=CrossrefClient(
+                base_url="https://crossref.test",
+                retries=0,
+                transport=httpx.MockTransport(handler),
+            ),
+        )
+
+        assert result["quality_gate"]["passed"] is True
+        assert result["external_count"] == 2
+        assert result["rejected_count"] == 1
+        assert all(
+            item["quality_decision"] == "accepted"
+            for item in result["evidence"]
+        )
+        assert all("multi-agent" not in item["title"].lower() for item in result["evidence"])
+        rejected = result["rejected_records"][0]
+        assert rejected["doi"] == "10.1000/multi-agent"
+        assert rejected["reason"] == "missing-required-dimension"
+        assert result["query_plan"]["intent"]["required_dimensions"] == [
+            "exposure",
+            "outcome",
+        ]
+
+    asyncio.run(scenario())
+
+
+def test_insufficient_first_pass_uses_clean_retry_queries() -> None:
+    async def scenario() -> None:
+        observed: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            query = request.url.params["query.bibliographic"]
+            observed.append(query)
+            if "vigilance" in query or "cognitive performance" in query:
+                items = [
+                    {
+                        "DOI": "10.1000/retry-success",
+                        "title": [
+                            "Nap duration and vigilance among university students"
+                        ],
+                        "abstract": (
+                            "Daytime napping was evaluated using a sustained attention test."
+                        ),
+                    }
+                ]
+            else:
+                items = [
+                    {
+                        "DOI": "10.1000/unrelated",
+                        "title": ["Distributed multi-agent scheduling"],
+                        "abstract": "DAG and RPC orchestration for software services.",
+                    }
+                ]
+            return httpx.Response(
+                200,
+                json={
+                    "status": "ok",
+                    "message": {"total-results": len(items), "items": items},
+                },
+            )
+
+        clear_literature_cache()
+        request = sample_request().model_copy(
+            update={
+                "question": "午睡时长是否影响大学生的持续注意力？",
+                "objective": "检索证据并生成可复现实验方案。",
+                "literature_query": "college students daytime nap sustained attention",
+                "documents": [],
+                "max_literature_results": 1,
+            }
+        )
+        result = await search_literature(
+            request,
+            client=CrossrefClient(
+                base_url="https://crossref.test",
+                retries=0,
+                transport=httpx.MockTransport(handler),
+            ),
+        )
+
+        assert result["query_plan"]["retry_performed"] is True
+        assert result["query_plan"]["retry_queries"]
+        assert any("vigilance" in query for query in observed)
+        assert result["quality_gate"]["passed"] is True
+        assert result["evidence"][0]["doi"] == "10.1000/retry-success"
 
     asyncio.run(scenario())

@@ -254,6 +254,11 @@ def analysis_processor(payload: dict[str, Any]) -> dict[str, Any]:
             source_counter[str(item["provider"])] += 1
 
     count = len(evidence)
+    relevance_scores = [
+        float(item["topic_relevance_score"])
+        for item in evidence
+        if isinstance(item.get("topic_relevance_score"), (int, float))
+    ]
     with_doi = sum(bool(item.get("doi")) for item in evidence)
     with_abstract = sum(bool(item.get("has_abstract")) for item in evidence)
     open_access = sum(bool(item.get("open_access_url")) for item in evidence)
@@ -268,6 +273,17 @@ def analysis_processor(payload: dict[str, Any]) -> dict[str, Any]:
         "doi_coverage": round(with_doi / count, 4) if count else 0.0,
         "abstract_coverage": round(with_abstract / count, 4) if count else 0.0,
         "open_access_coverage": round(open_access / count, 4) if count else 0.0,
+        "topic_relevance": {
+            "scored_count": len(relevance_scores),
+            "mean_score": (
+                round(sum(relevance_scores) / len(relevance_scores), 4)
+                if relevance_scores
+                else None
+            ),
+            "minimum_score": min(relevance_scores) if relevance_scores else None,
+            "quality_gate": literature.get("quality_gate"),
+            "rejected_count": literature.get("rejected_count", 0),
+        },
         "year_min": min(years) if years else None,
         "year_max": max(years) if years else None,
         "reproducibility": {
@@ -291,6 +307,18 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
 
     if not literature.get("evidence"):
         findings.append({"severity": "error", "message": "缺少可追溯文献证据"})
+    quality_gate = literature.get("quality_gate")
+    if isinstance(quality_gate, dict) and quality_gate.get("passed") is False:
+        findings.append(
+            {
+                "severity": "error",
+                "message": (
+                    "主题相关证据未达到质量门禁："
+                    f"{quality_gate.get('relevant_count', 0)}/"
+                    f"{quality_gate.get('required_count', 0)}"
+                ),
+            }
+        )
     if not experiment.get("controls"):
         findings.append({"severity": "error", "message": "实验方案缺少控制条件"})
     if analysis.get("external_count", 0) < 3:
@@ -306,6 +334,8 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
         "findings": findings,
         "checks": [
             "citation-presence",
+            "topic-relevance",
+            "query-contamination",
             "experimental-controls",
             "minimum-sample-warning",
             "constraint-registration",

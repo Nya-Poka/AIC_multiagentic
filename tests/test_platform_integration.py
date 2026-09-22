@@ -276,6 +276,68 @@ def test_leader_is_callable_through_aip_rpc(monkeypatch) -> None:
     assert len(access_lines) >= 4
 
 
+def test_leader_requests_better_input_when_retrieval_quality_gate_fails(
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("RESEARCH_MESH_MODE", "local")
+    settings = RuntimeSettings.from_env()
+
+    async def low_relevance_literature(_payload: dict) -> dict:
+        return {
+            "evidence": [
+                {
+                    "title": "Unrelated orchestration paper",
+                    "summary": "A software DAG and RPC routing record.",
+                    "doi": "10.1000/unrelated",
+                    "verification": "test-provider",
+                }
+            ],
+            "count": 1,
+            "external_count": 1,
+            "quality_gate": {
+                "passed": False,
+                "relevant_count": 0,
+                "required_count": 3,
+            },
+        }
+
+    async def scenario() -> None:
+        partner_apps = create_partner_apps(
+            {"literature": low_relevance_literature}
+        )
+        endpoints = {slug: f"http://{slug}.test/rpc" for slug in partner_apps}
+        app = create_app(default_registry(endpoints), settings=settings)
+        app.state.partner_transport_factory = asgi_transport_factory(partner_apps)
+        client = AipRpcClient(
+            partner_url="http://leader.test/rpc",
+            leader_id="local.external.caller",
+            transport=httpx.ASGITransport(app=app),
+            identity_binding_enabled=False,
+        )
+        try:
+            task = await client.start_task(
+                session_id="quality-gate-session",
+                task_id="quality-gate-task",
+                user_input=json.dumps(
+                    {"request": sample_request().model_dump(mode="json")},
+                    ensure_ascii=False,
+                ),
+            )
+            assert task.status.state == TaskState.AwaitingInput
+            messages = [
+                item.text
+                for item in task.status.dataItems or []
+                if isinstance(item, TextDataItem)
+            ]
+            assert messages
+            assert "method-review rejected" in messages[0]
+            assert "主题相关证据未达到质量门禁" in messages[0]
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())
+
+
 def test_leader_accepts_natural_language_and_embedded_json(monkeypatch) -> None:
     monkeypatch.setenv("RESEARCH_MESH_MODE", "local")
     monkeypatch.setenv("RESEARCH_MESH_INPUT_NORMALIZER_USE_LLM", "false")

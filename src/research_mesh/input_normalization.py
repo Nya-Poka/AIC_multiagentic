@@ -30,6 +30,23 @@ _BARE_KEY = re.compile(
     r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*|[\u3400-\u9fff]+)\s*:'
 )
 _WHITESPACE = re.compile(r"\s+")
+_AGENT_CALL_PREFIX = re.compile(
+    r"(?:请\s*)?调用智能体\s*[「“\"]?[^」”\"，,。:：]{1,120}[」”\"]?\s*[，,:：]?\s*",
+    flags=re.IGNORECASE,
+)
+_PLATFORM_TAIL = re.compile(
+    r"(?:DAG\s*指定的上游产物摘要|上游产物摘要|叮当已完成协作规划|"
+    r"协作驾驶舱|AIP调用)\s*[:：]?",
+    flags=re.IGNORECASE,
+)
+_PLATFORM_NOISE_TERMS = (
+    "调用智能体",
+    "DAG 指定的上游产物摘要",
+    "上游产物摘要",
+    "叮当已完成协作规划",
+    "协作驾驶舱",
+    "AIP调用",
+)
 _FULLWIDTH_TRANSLATION = str.maketrans(
     {
         "｛": "{",
@@ -100,6 +117,31 @@ def _clean_text(value: Any) -> str | None:
         return None
     cleaned = _WHITESPACE.sub(" ", value).strip()
     return cleaned or None
+
+
+def clean_research_text(value: str) -> str:
+    """Remove known Dingdang routing metadata without altering research content."""
+
+    cleaned = _clean_text(value) or ""
+    marker = _PLATFORM_TAIL.search(cleaned)
+    if marker is not None:
+        cleaned = cleaned[: marker.start()]
+    cleaned = _AGENT_CALL_PREFIX.sub("", cleaned, count=1)
+    cleaned = re.sub(
+        r"^(?:使用以下研究请求|研究请求|任务指令)\s*[:：]?\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = cleaned.strip(" \t\r\n，,。;；:：-")
+    return _WHITESPACE.sub(" ", cleaned).strip()
+
+
+def _contains_platform_noise(value: str | None) -> bool:
+    if not value:
+        return False
+    folded = value.casefold()
+    return any(term.casefold() in folded for term in _PLATFORM_NOISE_TERMS)
 
 
 def _candidate_fragments(text: str) -> list[str]:
@@ -220,7 +262,7 @@ def _canonical_request(payload: dict[str, Any]) -> ResearchRequest:
 
 
 def _request_from_natural_language(text: str) -> ResearchRequest:
-    cleaned = _clean_text(text)
+    cleaned = _clean_text(clean_research_text(text))
     if cleaned is None or len(cleaned) < 8:
         raise InputNormalizationError(
             "请提供至少 8 个字符的科研问题，或提交包含 question 和 objective 的 JSON 对象"
@@ -230,11 +272,10 @@ def _request_from_natural_language(text: str) -> ResearchRequest:
         "围绕用户科研问题完成文献检索、实验设计、数据分析、统计摘要和规范复核，"
         f"形成可追溯科研报告：{question}"
     )[:10_000]
-    literature_query = question[:500]
     return ResearchRequest(
         question=question,
         objective=objective,
-        literature_query=literature_query,
+        literature_query=None,
     )
 
 
@@ -278,19 +319,28 @@ class ResearchInputNormalizer:
             (text.strip() for text in reversed(text_inputs) if text.strip()),
             "",
         )
+        cleaned_natural_language = clean_research_text(natural_language)
         if natural_language and self.use_llm and self.llm_client is not None:
             try:
-                request = await self._normalise_with_llm(natural_language)
+                request = await self._normalise_with_llm(
+                    cleaned_natural_language or natural_language
+                )
+                if _contains_platform_noise(request.question):
+                    raise InputNormalizationError(
+                        "LLM input normalizer retained platform routing metadata"
+                    )
+                if _contains_platform_noise(request.literature_query):
+                    request = request.model_copy(update={"literature_query": None})
                 return {"request": request.model_dump(mode="json")}
             except Exception:
                 # Input conversion must remain available when the optional LLM is down.
                 pass
 
-        if natural_language:
+        if cleaned_natural_language:
             return {
-                "request": _request_from_natural_language(natural_language).model_dump(
-                    mode="json"
-                )
+                "request": _request_from_natural_language(
+                    cleaned_natural_language
+                ).model_dump(mode="json")
             }
         if errors:
             raise errors[-1]
@@ -311,6 +361,10 @@ class ResearchInputNormalizer:
                             "max_literature_results, documents, constraints. question and objective "
                             "must each contain at least 8 characters. constraints must be an array "
                             "of strings. Do not invent source documents, citations, or numeric data. "
+                            "Ignore agent names, routing commands, DAG summaries, AIP/RPC metadata, "
+                            "and orchestration status. The question must contain only the underlying "
+                            "research question. literature_query must be a concise scholarly query "
+                            "without platform terminology. "
                             "Return JSON only."
                         ),
                     ),

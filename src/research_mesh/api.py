@@ -84,7 +84,11 @@ def create_app(
         if not isinstance(raw_request, dict):
             raise PartnerInputError("payload.request must be a JSON object")
         request = ResearchRequest.model_validate(raw_request)
-        report = await new_leader().run(request)
+        try:
+            report = await new_leader().run(request)
+        except (AgentInputRequired, AgentExecutionError) as exc:
+            # AIP callers can supply a better query or additional evidence via continue.
+            raise PartnerInputError(str(exc)) from exc
         return report.model_dump(mode="json")
 
     leader_spec = PartnerSpec(

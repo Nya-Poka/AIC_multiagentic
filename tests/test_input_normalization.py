@@ -13,6 +13,7 @@ from acps_sdk.aip.aip_base_model import (
 
 from research_mesh.input_normalization import (
     ResearchInputNormalizer,
+    clean_research_text,
     extract_json_object,
 )
 from research_mesh.partners import PartnerSpec, _read_payload
@@ -66,8 +67,32 @@ def test_natural_language_has_deterministic_fallback() -> None:
         result = await normalizer.normalize([], [QUESTION])
         request = result["request"]
         assert request["question"] == QUESTION
-        assert request["literature_query"] == QUESTION
+        assert request["literature_query"] is None
         assert "文献检索" in request["objective"]
+
+    asyncio.run(scenario())
+
+
+def test_dingdang_routing_metadata_is_removed_before_fallback() -> None:
+    text = (
+        "调用智能体「基于多智能体协作的一站式科研助理平台」，"
+        "研究睡眠时长是否影响大学生学习表现，并设计一项可复现实验。 "
+        "DAG 指定的上游产物摘要：叮当已完成协作规划并开始按 DAG 派发。"
+    )
+
+    assert clean_research_text(text) == (
+        "研究睡眠时长是否影响大学生学习表现，并设计一项可复现实验"
+    )
+
+    async def scenario() -> None:
+        result = await ResearchInputNormalizer(use_llm=False).normalize([], [text])
+        request = result["request"]
+        assert request["question"] == (
+            "研究睡眠时长是否影响大学生学习表现，并设计一项可复现实验"
+        )
+        assert request["literature_query"] is None
+        assert "调用智能体" not in request["objective"]
+        assert "DAG" not in request["objective"]
 
     asyncio.run(scenario())
 
