@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 from acps_sdk.acs import AgentCapabilitySpec
-from acps_sdk.aip.aip_base_model import StructuredDataItem, TaskState
+from acps_sdk.aip.aip_base_model import StructuredDataItem, TaskState, TextDataItem
 from acps_sdk.aip.aip_rpc_client import AipRpcClient
 
 from research_mesh.acs import build_acs
@@ -76,6 +76,8 @@ def test_leader_acs_exposes_searchable_research_capabilities(monkeypatch) -> Non
     assert skill["version"] == "0.6.0"
     assert skill["id"] == "research-collaboration.orchestration"
     assert skill["name"] == "一站式科研助理与多智能体科研协作编排"
+    assert acs["defaultOutputModes"] == ["application/json", "text/plain"]
+    assert skill["outputModes"] == ["application/json", "text/plain"]
     assert {
         "文献检索",
         "实验设计",
@@ -248,6 +250,17 @@ def test_leader_is_callable_through_aip_rpc(monkeypatch) -> None:
                 if isinstance(item, StructuredDataItem)
             ]
             assert products[0]["result"]["status"] == "completed"
+            text_products = [
+                item.text
+                for product in task.products or []
+                for item in product.dataItems
+                if isinstance(item, TextDataItem)
+            ]
+            assert len(text_products) == 1
+            assert "# 一站式科研协作报告" in text_products[0]
+            assert sample_request().question in text_products[0]
+            assert "## 实验设计" in text_products[0]
+            assert "## 可追溯信息" in text_products[0]
             completed = await client.complete_task(
                 task_id=task.taskId,
                 session_id=task.sessionId,

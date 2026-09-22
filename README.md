@@ -182,6 +182,9 @@ Leader 的 AIP 入口会把以下输入统一转换为 `ResearchRequest`：
 $env:RESEARCH_MESH_INPUT_NORMALIZER_USE_LLM = 'false'
 ```
 
+Leader 的 AIP 结果同时包含 `text/plain` 正文和 `application/json` 结构化报告：叮当等
+交互式调用方可以直接展示可读报告，程序调用方仍可读取完整字段和可追溯记录。
+
 输入转换只生成请求结构，不会编造文献、引文或实验数据。原始输入及标准化结果仍应按
 科研数据安全要求处理，不要向未获授权的模型服务发送敏感数据。
 

@@ -227,7 +227,7 @@ def build_acs(
             "messageQueue": [],
         },
         "defaultInputModes": ["application/json", "text/plain"],
-        "defaultOutputModes": ["application/json"],
+        "defaultOutputModes": ["application/json", "text/plain"],
         "skills": [
             {
                 "id": definition.skill_id,
@@ -237,7 +237,7 @@ def build_acs(
                 "tags": list(definition.tags),
                 "examples": list(definition.examples),
                 "inputModes": ["application/json", "text/plain"],
-                "outputModes": ["application/json"],
+                "outputModes": ["application/json", "text/plain"],
             }
         ],
     }

@@ -22,6 +22,7 @@ from .input_normalization import ResearchInputNormalizer
 from .leader import AgentExecutionError, AgentInputRequired, ResearchLeader
 from .observability import AmpRuntime
 from .partners import PartnerInputError, PartnerSpec, make_handlers
+from .presentation import render_research_report
 from .registry import (
     AgentNotFoundError,
     CapabilityRegistry,
@@ -93,6 +94,7 @@ def create_app(
         skill="research-collaboration.orchestration",
         processor=leader_processor,
         input_normalizer=ResearchInputNormalizer.from_environment(),
+        result_text_renderer=render_research_report,
     )
     add_aip_rpc_router(
         app,

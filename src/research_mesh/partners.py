@@ -28,6 +28,7 @@ class PartnerInputError(ValueError):
 Processor = Callable[
     [dict[str, Any]], dict[str, Any] | Awaitable[dict[str, Any]]
 ]
+ResultTextRenderer = Callable[[dict[str, Any]], str]
 
 
 class InputNormalizer(Protocol):
@@ -46,6 +47,7 @@ class PartnerSpec:
     skill: str
     processor: Processor
     input_normalizer: InputNormalizer | None = None
+    result_text_renderer: ResultTextRenderer | None = None
 
 
 async def _read_payload(command: TaskCommand, spec: PartnerSpec) -> dict[str, Any]:
@@ -101,6 +103,26 @@ async def _run_processor(spec: PartnerSpec, payload: dict[str, Any]) -> dict[str
     return result
 
 
+def _result_data_items(
+    spec: PartnerSpec,
+    result: dict[str, Any],
+) -> list[TextDataItem | StructuredDataItem]:
+    structured = StructuredDataItem(
+        data={
+            "agent": spec.slug,
+            "skill": spec.skill,
+            "result": result,
+        }
+    )
+    if spec.result_text_renderer is None:
+        return [structured]
+
+    text = spec.result_text_renderer(result).strip()
+    if not text:
+        raise ValueError(f"{spec.slug} result text renderer returned empty text")
+    return [TextDataItem(text=text), structured]
+
+
 async def _execute(command: TaskCommand, spec: PartnerSpec) -> TaskResult:
     try:
         payload = await _read_payload(command, spec)
@@ -115,16 +137,8 @@ async def _execute(command: TaskCommand, spec: PartnerSpec) -> TaskResult:
             Product(
                 id=f"product-{spec.slug}-{task.taskId}",
                 name=f"{spec.slug}-result",
-                description=f"Structured result produced by {spec.name}",
-                dataItems=[
-                    StructuredDataItem(
-                        data={
-                            "agent": spec.slug,
-                            "skill": spec.skill,
-                            "result": result,
-                        }
-                    )
-                ],
+                description=f"Result produced by {spec.name}",
+                dataItems=_result_data_items(spec, result),
             )
         ],
     )
@@ -161,11 +175,7 @@ def make_handlers(spec: PartnerSpec) -> CommandHandlers:
                 Product(
                     id=f"product-{spec.slug}-{task.taskId}",
                     name=f"{spec.slug}-result",
-                    dataItems=[
-                        StructuredDataItem(
-                            data={"agent": spec.slug, "skill": spec.skill, "result": result}
-                        )
-                    ],
+                    dataItems=_result_data_items(spec, result),
                 )
             ],
         )
