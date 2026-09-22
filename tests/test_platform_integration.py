@@ -261,3 +261,73 @@ def test_leader_is_callable_through_aip_rpc(monkeypatch) -> None:
         encoding="utf-8"
     ).splitlines()
     assert len(access_lines) >= 4
+
+
+def test_leader_accepts_natural_language_and_embedded_json(monkeypatch) -> None:
+    monkeypatch.setenv("RESEARCH_MESH_MODE", "local")
+    monkeypatch.setenv("RESEARCH_MESH_INPUT_NORMALIZER_USE_LLM", "false")
+    settings = RuntimeSettings.from_env()
+
+    async def normalization_literature_search(payload: dict) -> dict:
+        documents = payload["request"]["documents"]
+        evidence = [
+            {**document, "verification": "test-provider"}
+            for document in documents
+        ]
+        if not evidence:
+            evidence = [
+                {
+                    "title": "Input normalization integration fixture",
+                    "authors": ["Research Mesh Tests"],
+                    "year": 2026,
+                    "summary": "A traceable fixture used to verify the AIP input path.",
+                    "identifier": "10.0000/research-mesh.fixture",
+                    "doi": "10.0000/research-mesh.fixture",
+                    "provider": "test-provider",
+                    "providers": ["test-provider"],
+                    "has_abstract": True,
+                    "verification": "test-provider",
+                }
+            ]
+        return {"evidence": evidence, "count": len(evidence)}
+
+    async def scenario() -> None:
+        partner_apps = create_partner_apps(
+            {"literature": normalization_literature_search}
+        )
+        endpoints = {slug: f"http://{slug}.test/rpc" for slug in partner_apps}
+        app = create_app(default_registry(endpoints), settings=settings)
+        app.state.partner_transport_factory = asgi_transport_factory(partner_apps)
+        client = AipRpcClient(
+            partner_url="http://leader.test/rpc",
+            leader_id="local.external.caller",
+            transport=httpx.ASGITransport(app=app),
+            identity_binding_enabled=False,
+        )
+        try:
+            natural_task = await client.start_task(
+                session_id="natural-session",
+                task_id="natural-task",
+                user_input="研究睡眠时长是否影响大学生学习表现，并给出可复现实验方案",
+            )
+            assert natural_task.status.state == TaskState.AwaitingCompletion
+
+            embedded_task = await client.start_task(
+                session_id="embedded-session",
+                task_id="embedded-task",
+                user_input=(
+                    "叮当上下文：用户已经补充输入。用户回答："
+                    + json.dumps(
+                        {
+                            "question": "睡眠时长是否会影响大学生的学习表现和注意力水平",
+                            "objective": "完成相关文献检索并设计一项可复现的观察性研究方案",
+                        },
+                        ensure_ascii=False,
+                    )
+                ),
+            )
+            assert embedded_task.status.state == TaskState.AwaitingCompletion
+        finally:
+            await client.close()
+
+    asyncio.run(scenario())

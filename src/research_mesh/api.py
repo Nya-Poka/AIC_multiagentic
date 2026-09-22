@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .acs import build_acs
 from .config import RuntimeSettings, runtime_settings
+from .input_normalization import ResearchInputNormalizer
 from .leader import AgentExecutionError, AgentInputRequired, ResearchLeader
 from .observability import AmpRuntime
 from .partners import PartnerInputError, PartnerSpec, make_handlers
@@ -91,6 +92,7 @@ def create_app(
         name="基于多智能体协作的一站式科研助理平台",
         skill="research-collaboration.orchestration",
         processor=leader_processor,
+        input_normalizer=ResearchInputNormalizer.from_environment(),
     )
     add_aip_rpc_router(
         app,

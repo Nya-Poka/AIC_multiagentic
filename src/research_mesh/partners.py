@@ -5,7 +5,7 @@ import json
 from collections import Counter
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from acps_sdk.aip.aip_base_model import (
     Product,
@@ -30,6 +30,14 @@ Processor = Callable[
 ]
 
 
+class InputNormalizer(Protocol):
+    async def normalize(
+        self,
+        structured_inputs: list[dict[str, Any]],
+        text_inputs: list[str],
+    ) -> dict[str, Any]: ...
+
+
 @dataclass(frozen=True)
 class PartnerSpec:
     slug: str
@@ -37,18 +45,36 @@ class PartnerSpec:
     name: str
     skill: str
     processor: Processor
+    input_normalizer: InputNormalizer | None = None
 
 
-def _read_payload(command: TaskCommand) -> dict[str, Any]:
+async def _read_payload(command: TaskCommand, spec: PartnerSpec) -> dict[str, Any]:
+    structured_inputs: list[dict[str, Any]] = []
+    text_inputs: list[str] = []
     for item in command.dataItems or []:
-        if isinstance(item, TextDataItem) and item.text.strip():
+        if isinstance(item, StructuredDataItem):
+            structured_inputs.append(item.data)
+        elif isinstance(item, TextDataItem) and item.text.strip():
+            text_inputs.append(item.text)
+
+    if spec.input_normalizer is not None:
+        return await spec.input_normalizer.normalize(structured_inputs, text_inputs)
+
+    if structured_inputs:
+        return structured_inputs[-1]
+    last_error: json.JSONDecodeError | None = None
+    for text in reversed(text_inputs):
+        if text.strip():
             try:
-                payload = json.loads(item.text)
+                payload = json.loads(text)
             except json.JSONDecodeError as exc:
-                raise PartnerInputError(f"input is not valid JSON: {exc.msg}") from exc
+                last_error = exc
+                continue
             if not isinstance(payload, dict):
-                raise PartnerInputError("input JSON must be an object")
+                continue
             return payload
+    if last_error is not None:
+        raise PartnerInputError(f"input is not valid JSON: {last_error.msg}") from last_error
     raise PartnerInputError("a JSON TextDataItem is required")
 
 
@@ -77,7 +103,7 @@ async def _run_processor(spec: PartnerSpec, payload: dict[str, Any]) -> dict[str
 
 async def _execute(command: TaskCommand, spec: PartnerSpec) -> TaskResult:
     try:
-        payload = _read_payload(command)
+        payload = await _read_payload(command, spec)
         result = await _run_processor(spec, payload)
     except (PartnerInputError, ValueError) as exc:
         return _awaiting_input(command, spec, str(exc))
@@ -120,7 +146,7 @@ def make_handlers(spec: PartnerSpec) -> CommandHandlers:
         ):
             return _with_sender(task, spec.aic)
         try:
-            payload = _read_payload(command)
+            payload = await _read_payload(command, spec)
             result = await _run_processor(spec, payload)
         except (PartnerInputError, ValueError) as exc:
             updated = TaskManager.update_task_status(

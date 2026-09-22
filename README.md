@@ -163,6 +163,28 @@ DeepSeek 配置示例：`RESEARCH_MESH_LLM_BASE_URL=https://api.deepseek.com`，
 运行 Gateway 的服务器能否访问公网、DNS、系统代理和防火墙。官方调用示例见
 [DeepSeek First API Call](https://api-docs.deepseek.com/)。
 
+### Leader 输入标准化
+
+Leader 的 AIP 入口会把以下输入统一转换为 `ResearchRequest`：
+
+- AIP `StructuredDataItem` 中的标准对象；
+- 严格 JSON，以及带 `request`、`input`、`payload` 或 `data` 包装的对象；
+- Markdown 代码块、说明文字中嵌入的 JSON；
+- 单引号、尾随逗号、常见中文字段名等宽松 JSON；
+- 普通自然语言科研问题。
+
+统一结果固定包含 `question`、`objective`、`literature_query`、
+`max_literature_results`、`documents` 和 `constraints`。配置了统一 LLM Provider 时，
+自然语言默认先由 LLM Gateway 提取研究目标与约束；Gateway 不可用时会自动回退本地
+确定性转换，不阻断 AIP 调用。可显式关闭 LLM 标准化：
+
+```powershell
+$env:RESEARCH_MESH_INPUT_NORMALIZER_USE_LLM = 'false'
+```
+
+输入转换只生成请求结构，不会编造文献、引文或实验数据。原始输入及标准化结果仍应按
+科研数据安全要求处理，不要向未获授权的模型服务发送敏感数据。
+
 ## 运行六个独立服务
 
 分别打开六个 PowerShell 终端：
