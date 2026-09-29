@@ -7,7 +7,7 @@ name = "research-mesh"
 version = "0.7.0"
 description = "AIP-based minimal multi-agent research collaboration loop"
 readme = "README.md"
-requires-python = ">=3.11,<4"
+requires-python = ">=3.10,<4"
 dependencies = [
   "acps-sdk @ git+https://github.com/AIP-PUB/ACPs-community.git@3985c1330209f075c124669cc9d31f0e75448140#subdirectory=acps-sdk",
   "fastapi>=0.100",
