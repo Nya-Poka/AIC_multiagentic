@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet('literature', 'experiment', 'analysis', 'review')]
+    [ValidateSet('literature', 'experiment', 'analysis', 'dataset', 'synthesis', 'review')]
     [string]$Agent,
 
     [int]$Port = 0
@@ -19,6 +19,8 @@ if ($Port -eq 0) {
         'experiment' { 8012 }
         'analysis' { 8013 }
         'review' { 8014 }
+        'dataset' { 8015 }
+        'synthesis' { 8016 }
     }
 }
 

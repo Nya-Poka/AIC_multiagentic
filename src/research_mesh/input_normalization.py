@@ -109,6 +109,13 @@ _FIELD_ALIASES: dict[str, tuple[str, ...]] = {
         "限制",
         "要求",
     ),
+    "dataset": ("dataset", "dataset_ref", "datasetRef", "数据集", "数据文件"),
+    "analysis_spec": (
+        "analysis_spec",
+        "analysisSpec",
+        "统计分析要求",
+        "分析变量",
+    ),
 }
 
 
@@ -247,7 +254,13 @@ def _canonical_request(payload: dict[str, Any]) -> ResearchRequest:
         "objective": objective,
         "constraints": _normalise_constraints(_lookup(source, "constraints")),
     }
-    for field in ("literature_query", "max_literature_results", "documents"):
+    for field in (
+        "literature_query",
+        "max_literature_results",
+        "documents",
+        "dataset",
+        "analysis_spec",
+    ):
         value = _lookup(source, field)
         if value is not None:
             candidate[field] = value

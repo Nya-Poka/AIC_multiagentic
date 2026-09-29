@@ -8,6 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .config import RuntimeSettings
+from . import __version__
 
 
 @dataclass(frozen=True)
@@ -110,6 +111,40 @@ AGENT_CARDS: dict[str, AgentCardDefinition] = {
             "只分析证据元数据，不假装已经核读全文",
         ),
     ),
+    "dataset": AgentCardDefinition(
+        slug="dataset",
+        name="科研数据分析智能体",
+        description=(
+            "读取服务器受控工件存储中的 CSV、JSON 或 XLSX 数据，执行字段、缺失、"
+            "分布和预注册变量关联分析；不向模型发送原始数据，不把描述性关联解释为因果。"
+        ),
+        skill_id="dataset-analysis",
+        skill_name="可复现科研数据分析",
+        skill_description="对经哈希验证的数据集执行确定性质量检查、描述统计和带区间的关联分析。",
+        tags=("科研协作", "数据分析", "描述统计", "效应量", "可复现", "隐私"),
+        examples=(
+            "分析上传的 CSV 中睡眠时长与测验成绩的相关性",
+            "检查数据集缺失值、异常范围和字段类型",
+            "输出带输入哈希和分析引擎版本的可复现统计摘要",
+        ),
+    ),
+    "synthesis": AgentCardDefinition(
+        slug="synthesis",
+        name="证据综合智能体",
+        description=(
+            "将书目、摘要与合法开放全文片段整理为证据矩阵，区分证据层级并表达不确定性；"
+            "不在缺少验证时推断效应方向或生成正式 GRADE 结论。"
+        ),
+        skill_id="evidence-synthesis",
+        skill_name="可追溯证据综合",
+        skill_description="基于检索产物生成证据矩阵、类型分布、确定性提示和限制说明。",
+        tags=("科研协作", "证据综合", "开放全文", "证据矩阵", "不确定性"),
+        examples=(
+            "综合睡眠与学习表现的直接证据并说明不确定性",
+            "区分摘要级证据和开放全文片段级证据",
+            "生成可追溯证据矩阵但不夸大因果结论",
+        ),
+    ),
     "review": AgentCardDefinition(
         slug="review",
         name="规范复核智能体",
@@ -202,7 +237,7 @@ def build_acs(
         "protocolVersion": "02.02",
         "name": definition.name,
         "description": definition.description,
-        "version": "0.6.0",
+        "version": __version__,
         "provider": provider,
         "securitySchemes": (
             {
@@ -233,7 +268,7 @@ def build_acs(
                 "id": definition.skill_id,
                 "name": definition.skill_name,
                 "description": definition.skill_description,
-                "version": "0.6.0",
+                "version": __version__,
                 "tags": list(definition.tags),
                 "examples": list(definition.examples),
                 "inputModes": ["application/json", "text/plain"],

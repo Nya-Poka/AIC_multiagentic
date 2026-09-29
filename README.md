@@ -7,7 +7,8 @@
 研究请求
   -> 本地能力发现或梧桐 ADP 在线发现
   -> 文献 / 实验 Partner 并行执行
-  -> 证据分析 Partner 审计检索结果
+  -> 证据分析 / 证据综合 Partner 审计并组织检索结果
+  -> 可选科研数据分析 Partner 校验并分析上传数据
   -> 规范复核 Partner
   -> 带 AIP 任务轨迹的结构化研究报告
 ```
@@ -15,21 +16,25 @@
 ## 当前完成范围
 
 - 1 个科研 Leader 服务（端口 `8000`）；
-- 4 个独立进程、独立任务存储的 Partner 服务（端口 `8011`～`8014`）；
+- 6 个独立进程的 Partner 服务（端口 `8011`～`8016`）；
 - 1 个统一 LLM Gateway 服务（端口 `8020`）；
 - 官方 `TaskCommand` / `TaskResult` / `TaskState` / `AipRpcClient`；
 - `start -> awaiting-completion -> complete -> completed` 状态闭环；
 - 缺少必要输入时进入 `awaiting-input`；
 - 按技能动态选择 Partner；
-- 并行执行文献检索与实验设计，随后执行证据分析和规范复核；
+- 并行执行文献检索与实验设计，随后执行证据分析、证据综合、可选数据分析和规范复核；
 - Leader 输入只包含研究问题、目标、检索范围和约束，不再要求手填数值样本；
 - 文献 Agent 并行调用 Crossref、OpenAlex、Semantic Scholar，执行去重和多源核验；
 - 可选通过统一 LLM Gateway 调用 DeepSeek 扩展英文检索词；
 - 结构化产物、规范复核与 provenance 轨迹；
+- 合法开放全文的受控抓取、片段哈希和证据矩阵；
+- CSV、JSON、XLSX 数据集工件上传、哈希校验、描述统计和带区间的关联分析；
+- ADP 多候选故障转移、熔断、SQLite 运行记录和聚合指标；
+- 批量评测与脱敏平台证据归档；
 - FastAPI 接口和自动化测试。
 - Leader 本身可通过 `/rpc` 被其他智能体按 AIP 调用；
-- 梧桐平台模式、五套独立 AIC、mTLS、身份绑定和 AMP 日志；
-- 五份 ACS v02.02 生成器与平台就绪检查。
+- 梧桐平台模式、独立 AIC、mTLS、身份绑定和 AMP 日志；
+- 全部 Agent 的 ACS v02.02 生成器与平台就绪检查。
 
 本地模式使用确定性注册表并关闭身份绑定；平台模式会调用官方 ADP `discover`，使用
 ACPs CA 签发证书执行 mTLS，并强制绑定 peer certificate AIC 与 AIP `senderId`。平台账号、
@@ -54,22 +59,23 @@ ACPs CA 签发证书执行 mTLS，并强制绑定 peer certificate AIC 与 AIP `
 .\scripts\run-demo.ps1
 ```
 
-输出包含四个 Partner 的结果和每次 AIP 调用的任务ID、最终状态及耗时。
+输出包含各 Partner 的结果和每次 AIP 调用的任务ID、最终状态、候选切换及耗时。
 
 ## 简洁 Web 前端
 
-一条命令启动 Leader、四个 Partner 和 LLM Gateway，然后打开
+一条命令启动 Leader、六个 Partner 和 LLM Gateway，然后打开
 `http://127.0.0.1:8000/`：
 
 ```powershell
 .\scripts\run-local.ps1
 ```
 
-按 `Ctrl+C` 会统一关闭全部六个服务。
+按 `Ctrl+C` 会统一关闭全部八个服务。
 
 页面提供一条清晰的科研协作闭环：
 
-- 填写研究问题、目标、文献检索词和约束，运行完整四 Agent 闭环；
+- 填写研究问题、目标、文献检索词和约束，运行完整多 Agent 闭环；
+- 可选上传科研数据并指定结局、暴露和协变量；原始数据不会发送给 LLM；
 - 展示每个外部文献源的可用状态、去重证据、摘要、DOI 和开放获取链接；
 - 展示证据来源、摘要、DOI、开放获取和发表年代覆盖率；
 - 前端不接收、保存或传输模型 API Key，模型配置只存在于服务器环境变量中。
@@ -235,14 +241,19 @@ $env:RESEARCH_MESH_LITERATURE_MIN_DIRECTNESS = '0.55'
 $env:RESEARCH_MESH_LITERATURE_MIN_SOURCE_QUALITY = '0.35'
 ```
 
-## 运行六个独立服务
+新增能力的安全边界、配置、API、评测与平台升级步骤见
+[高级能力与 v0.7.0 升级说明](docs/ADVANCED_CAPABILITIES.md)。
 
-分别打开六个 PowerShell 终端：
+## 运行八个独立服务
+
+分别打开八个 PowerShell 终端：
 
 ```powershell
 .\scripts\run-partner.ps1 -Agent literature
 .\scripts\run-partner.ps1 -Agent experiment
 .\scripts\run-partner.ps1 -Agent analysis
+.\scripts\run-partner.ps1 -Agent dataset
+.\scripts\run-partner.ps1 -Agent synthesis
 .\scripts\run-partner.ps1 -Agent review
 .\scripts\run-llm.ps1
 .\scripts\run-api.ps1
@@ -257,6 +268,8 @@ $env:RESEARCH_MESH_LITERATURE_MIN_SOURCE_QUALITY = '0.35'
 | Experiment Partner | 8012 | `/rpc`、`/acs`、`/health` |
 | Analysis Partner | 8013 | `/rpc`、`/acs`、`/health` |
 | Review Partner | 8014 | `/rpc`、`/acs`、`/health` |
+| Dataset Partner | 8015 | `/rpc`、`/acs`、`/health` |
+| Synthesis Partner | 8016 | `/rpc`、`/acs`、`/health` |
 | LLM Gateway | 8020 | `/v1/complete`、`/v1/models`、`/health` |
 
 常用入口：
@@ -281,7 +294,7 @@ clientAuth/serverAuth 证书签发、平台模式配置、启动和排障命令�
 - [梧桐 ACPs 接入手册](docs/WUTONG_INTEGRATION.md)
 - [ACPs 部署资产说明](deploy/acps/README.md)
 
-生成五份待注册 ACS 并检查平台配置：
+生成全部待注册 ACS 并检查平台配置：
 
 ```powershell
 .\scripts\generate-acps.ps1 -BaseUrl 'https://agents.example.edu.cn'
@@ -299,12 +312,12 @@ clientAuth/serverAuth 证书签发、平台模式配置、启动和排障命令�
 ```
 
 第一条运行无网络依赖的单元与内存 HTTP 集成测试；第二条真实访问已启用的学术数据源并
-要求至少返回一条文献；第三条启动六个操作系统进程，验证健康检查、ACS、LLM Gateway、跨进程
-AIP 调用和完整四 Agent 闭环，结束后会自动清理进程。
+要求至少返回一条文献；第三条启动八个操作系统进程，验证健康检查、ACS、LLM Gateway、跨进程
+AIP 调用和完整闭环，结束后会自动清理进程。
 
-## 仍可扩展的能力
+## 后续扩展方向
 
-1. 让实验设计和报告综合 Agent 按任务策略调用统一 LLM Gateway；
-2. 增加开放全文安全抓取、PDF 分段解析与受限代码执行沙箱；
-3. 增加 ADP 多候选故障重发现、基线实验和比赛演示证据自动归档；
-4. 按平台运维约定把本地 AMP NDJSON 接入 Fluent Bit/Kafka/Monitor。
+1. 将单机 SQLite 运行账本升级为 PostgreSQL/Redis，并支持 DAG 检查点恢复；
+2. 增加受限统计代码沙箱、多变量模型和正式偏倚风险评价；
+3. 将集中事件与 AMP NDJSON 接入 OpenTelemetry/Monitor；
+4. 建立专家标注科研基准集和跨协议一致性测试套件。

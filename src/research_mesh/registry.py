@@ -29,6 +29,10 @@ class DiscoveryUnavailableError(RuntimeError):
 
 
 class CapabilityRegistry(Protocol):
+    def discover(
+        self, required_skill: str, query: str = ""
+    ) -> list[AgentDescriptor] | Awaitable[list[AgentDescriptor]]: ...
+
     def require(
         self, required_skill: str, query: str = ""
     ) -> AgentDescriptor | Awaitable[AgentDescriptor]: ...
@@ -72,6 +76,8 @@ SKILL_TO_SLUG = {
     "literature-search": "literature",
     "experiment-design": "experiment",
     "data-analysis": "analysis",
+    "dataset-analysis": "dataset",
+    "evidence-synthesis": "synthesis",
     "method-review": "review",
 }
 
@@ -276,13 +282,24 @@ class HybridCapabilityRegistry:
         self.local = local
         self.fallback_local = fallback_local
 
-    async def require(self, required_skill: str, query: str = "") -> AgentDescriptor:
+    async def discover(
+        self, required_skill: str, query: str = ""
+    ) -> list[AgentDescriptor]:
         try:
-            return await self.online.require(required_skill, query)
+            matches = await self.online.discover(required_skill, query)
+            if not matches:
+                raise AgentNotFoundError(
+                    f"no ADP agent provides skill: {required_skill}"
+                )
+            return matches
         except (DiscoveryUnavailableError, AgentNotFoundError):
             if not self.fallback_local:
                 raise
-            return self.local.require(required_skill, query)
+            return self.local.discover(required_skill, query)
+
+    async def require(self, required_skill: str, query: str = "") -> AgentDescriptor:
+        matches = await self.discover(required_skill, query)
+        return matches[0]
 
     def list_agents(self) -> list[AgentDescriptor]:
         return self.local.list_agents()
@@ -293,6 +310,8 @@ PARTNER_PORTS = {
     "experiment": 8012,
     "analysis": 8013,
     "review": 8014,
+    "dataset": 8015,
+    "synthesis": 8016,
 }
 
 
@@ -314,6 +333,8 @@ def default_registry(
         ),
         ("experiment", "实验设计智能体", "experiment-design", ["假设", "变量", "实验"]),
         ("analysis", "证据分析智能体", "data-analysis", ["证据", "来源", "DOI", "复现"]),
+        ("dataset", "科研数据分析智能体", "dataset-analysis", ["数据", "统计", "CSV", "XLSX", "可复现"]),
+        ("synthesis", "证据综合智能体", "evidence-synthesis", ["证据综合", "全文", "矩阵", "不确定性"]),
         ("review", "规范复核智能体", "method-review", ["规范", "引用核验", "复核"]),
     ]
     return LocalCapabilityRegistry(

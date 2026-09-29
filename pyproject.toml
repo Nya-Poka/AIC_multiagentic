@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "research-mesh"
-version = "0.6.0"
+version = "0.7.0"
 description = "AIP-based minimal multi-agent research collaboration loop"
 readme = "README.md"
 requires-python = ">=3.11,<4"
@@ -14,6 +14,8 @@ dependencies = [
   "httpx>=0.24",
   "pydantic>=2",
   "uvicorn>=0.30",
+  "openpyxl>=3.1",
+  "pypdf>=5",
 ]
 
 [project.optional-dependencies]

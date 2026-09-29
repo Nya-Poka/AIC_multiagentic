@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
+import tempfile
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -37,14 +38,42 @@ def main() -> int:
         )
     if not settings.amp_enabled:
         failures.append("RESEARCH_MESH_AMP_ENABLED must be true for platform readiness")
-    for slug in AGENT_CARDS:
+    else:
+        if not settings.amp_log_dir.is_absolute():
+            failures.append(
+                "RESEARCH_MESH_AMP_LOG_DIR must be an absolute path under systemd"
+            )
+        if not 10.0 <= settings.amp_heartbeat_interval_seconds <= 60.0:
+            failures.append(
+                "RESEARCH_MESH_AMP_HEARTBEAT_INTERVAL_SECONDS must be between 10 and 60"
+            )
+        if settings.amp_log_dir.is_absolute():
+            try:
+                settings.amp_log_dir.mkdir(parents=True, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    prefix=".amp-readiness-",
+                    dir=settings.amp_log_dir,
+                ) as probe:
+                    probe.write(b"ok")
+                    probe.flush()
+            except OSError as exc:
+                failures.append(
+                    f"AMP log directory is not writable: {settings.amp_log_dir}: {exc}"
+                )
+    enabled_slugs = [
+        slug
+        for slug in AGENT_CARDS
+        if (slug != "dataset" or settings.dataset_analysis_enabled)
+        and (slug != "synthesis" or settings.evidence_synthesis_enabled)
+    ]
+    for slug in enabled_slugs:
         try:
             settings.validate_agent(slug, require_discovery=slug == "leader")
         except PlatformConfigurationError as exc:
             failures.append(str(exc))
 
     generated = ROOT / "deploy" / "acps" / "generated"
-    for slug in AGENT_CARDS:
+    for slug in enabled_slugs:
         path = generated / f"{slug}.acs.json"
         if not path.is_file():
             failures.append(f"missing generated ACS: {path}")
@@ -124,7 +153,7 @@ def main() -> int:
         for failure in dict.fromkeys(failures):
             print(f"  - {failure}")
         return 1
-    print("Platform readiness check passed for Leader and four Partners.")
+    print(f"Platform readiness check passed for Leader and {len(enabled_slugs) - 1} Partners.")
     return 0
 
 

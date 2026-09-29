@@ -1,5 +1,7 @@
 # 基于多智能体协作的一站式科研助理平台接入梧桐 ACPs
 
+> 本文前半部分保留已上线 v0.6.0 的 Leader + 四 Partner 操作。v0.7.0 新增 Dataset 与 Synthesis Partner；为避免破坏现有平台闭环，这两个能力在 platform 模式默认关闭。新增注册、端口、证书和启用顺序见 [v0.7.0 高级能力与升级说明](ADVANCED_CAPABILITIES.md#7-梧桐新增-partner)。
+
 本文针对当前代码的 Leader + 4 Partner 架构。平台账号、人工审核、AIC 分配、域名所有权和证书签发不能由代码替你完成；其余协议接入已落到项目中。
 
 ## 1. 已在代码中完成
@@ -9,7 +11,7 @@
 - Leader 使用 clientAuth 证书访问 ADP Discovery 与 Partner；
 - 平台模式默认开启 mTLS peer certificate 与 AIP `senderId` 身份绑定；
 - Leader 动态调用 `POST {discovery}/discover`，支持最多五次 307 转发；
-- AIP 出站访问日志与五个进程心跳写入 AMP NDJSON；
+- AIP 出站访问日志与每个启用 Agent 进程的心跳写入 AMP NDJSON；
 - ACS v02.02 生成器、平台配置预检和 fail-closed 启动检查；
 - 本地模式仍可运行，无需 AIC、证书或 API Key。
 
@@ -152,7 +154,7 @@ acps-cli --config .\acps-cli.toml discover status
 acps-cli --config .\acps-cli.toml discover query '可追溯文献检索' --limit 5
 ```
 
-本机 AMP 文件应持续增长：`artifacts/amp/*-heartbeat.ndjson`，完成一次闭环后 Leader 的 `*-access.ndjson` 也应有记录。梧桐公开入口没有给出统一 Monitor URL；先向赛事方取得地址，并在 `acps-cli.toml` 增加 `[monitor]` 后再验证：
+平台部署必须把 `RESEARCH_MESH_AMP_LOG_DIR` 配成服务用户可写的绝对路径，例如 `/var/lib/research-mesh/amp`。本机 AMP 文件应持续增长：`/var/lib/research-mesh/amp/*-heartbeat.ndjson`，各服务 `/health` 中的 `amp.heartbeat_fresh` 应为 `true`；完成一次闭环后 Leader 的 `*-access.ndjson` 也应有记录。梧桐公开入口没有给出统一 Monitor URL；先向赛事方取得地址，并在 `acps-cli.toml` 增加 `[monitor]` 后再验证：
 
 ```powershell
 acps-cli --config .\acps-cli.toml monitor status

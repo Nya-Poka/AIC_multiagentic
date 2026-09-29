@@ -15,6 +15,7 @@ from .llm import (
     LLMSettings,
     create_provider_client,
 )
+from . import __version__
 
 
 def create_llm_app(
@@ -32,7 +33,7 @@ def create_llm_app(
 
     app = FastAPI(
         title="Research Mesh LLM Gateway",
-        version="0.6.0",
+        version=__version__,
         description="Provider-neutral completion gateway for research agents.",
     )
     app.state.llm_client = resolved_client

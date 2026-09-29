@@ -9,7 +9,7 @@ from .partners import PARTNER_SPECS, Processor
 def create_partner_apps(
     processor_overrides: dict[str, Processor] | None = None,
 ) -> dict[str, FastAPI]:
-    """Create four isolated ASGI apps for deterministic in-process tests."""
+    """Create isolated ASGI apps for every configured Partner."""
 
     overrides = processor_overrides or {}
     return {

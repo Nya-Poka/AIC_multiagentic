@@ -72,8 +72,8 @@ def test_leader_acs_exposes_searchable_research_capabilities(monkeypatch) -> Non
     )
 
     skill = acs["skills"][0]
-    assert acs["version"] == "0.6.0"
-    assert skill["version"] == "0.6.0"
+    assert acs["version"] == "0.7.0"
+    assert skill["version"] == "0.7.0"
     assert skill["id"] == "research-collaboration.orchestration"
     assert skill["name"] == "一站式科研助理与多智能体科研协作编排"
     assert acs["defaultOutputModes"] == ["application/json", "text/plain"]
@@ -200,6 +200,11 @@ def test_amp_runtime_writes_periodic_heartbeat(monkeypatch) -> None:
         )
         runtime.start()
         await asyncio.sleep(0.03)
+        status = runtime.status()
+        assert status["enabled"] is True
+        assert status["task_running"] is True
+        assert status["heartbeat_file_exists"] is True
+        assert status["heartbeat_fresh"] is True
         await runtime.stop()
 
     asyncio.run(scenario())

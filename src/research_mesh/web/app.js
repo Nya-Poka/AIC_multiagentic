@@ -114,6 +114,25 @@ function metric(label, value) {
   return `<div class="metric"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
 }
 
+function splitFields(value) {
+  return String(value || "")
+    .split(/[,，;；\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function uploadDataset(file) {
+  const response = await fetch("/artifacts/datasets", {
+    method: "POST",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+      "X-Filename": encodeURIComponent(file.name),
+    },
+    body: file,
+  });
+  return readJson(response);
+}
+
 function renderTrace(provenance) {
   const target = byId("provenance-list");
   if (!Array.isArray(provenance) || provenance.length === 0) {
@@ -133,6 +152,8 @@ function renderReport(report) {
   const literature = report.literature || {};
   const experiment = report.experiment || {};
   const analysis = report.analysis || {};
+  const datasetAnalysis = report.dataset_analysis || {};
+  const synthesis = report.synthesis || {};
   const review = report.review || {};
   const evidenceQuality = analysis.evidence_quality || {};
   const deduplication = evidenceQuality.deduplication || {};
@@ -155,6 +176,42 @@ function renderReport(report) {
         ${evidenceList(literature.evidence)}
       </div>
     </article>
+
+    <article class="result-card">
+      <header class="result-card-head">
+        <span class="agent-no">AGENT 04</span>
+        <h3>证据综合</h3>
+        <p class="result-meta">证据矩阵与不确定性表达</p>
+      </header>
+      <div class="result-body">
+        <div class="metric-grid">
+          ${metric("矩阵记录", synthesis.record_count ?? "—")}
+          ${metric("全文支持", synthesis.full_text_supported_records ?? 0)}
+          ${metric("摘要支持", synthesis.abstract_supported_records ?? 0)}
+          ${metric("确定性", synthesis.certainty ?? "—")}
+        </div>
+        <p>${escapeHtml(synthesis.conclusion || "没有返回证据综合说明")}</p>
+      </div>
+    </article>
+
+    ${datasetAnalysis.row_count ? `<article class="result-card">
+      <header class="result-card-head">
+        <span class="agent-no">AGENT 05</span>
+        <h3>科研数据分析</h3>
+        <p class="result-meta">确定性统计，不向模型发送原始数据</p>
+      </header>
+      <div class="result-body">
+        <div class="metric-grid">
+          ${metric("数据行", datasetAnalysis.row_count)}
+          ${metric("字段数", datasetAnalysis.column_count)}
+          ${metric("关联分析", Array.isArray(datasetAnalysis.associations) ? datasetAnalysis.associations.length : 0)}
+        </div>
+        ${plainList((datasetAnalysis.associations || []).map((item) => {
+          const result = item.result || {};
+          return `${item.exposure} → ${item.outcome}: r=${result.pearson_r ?? "不可计算"}, 95% CI=${JSON.stringify(result.confidence_interval_95 || "不可计算")}`;
+        }), "本次未指定可计算的暴露—结局变量。")}
+      </div>
+    </article>` : ""}
 
     <article class="result-card">
       <header class="result-card-head">
@@ -208,7 +265,7 @@ function renderReport(report) {
 
     <article class="result-card">
       <header class="result-card-head">
-        <span class="agent-no">AGENT 04</span>
+        <span class="agent-no">FINAL GATE</span>
         <h3>规范复核</h3>
         <p class="result-meta">${review.passed ? "检查通过" : "建议修改"}</p>
       </header>
@@ -229,7 +286,7 @@ async function updateSystemStatus() {
   try {
     const health = await readJson(await fetch("/health", { headers: { Accept: "application/json" } }));
     const mode = health.mode === "platform" ? "可信平台模式" : "本地演示模式";
-    byId("system-status-text").textContent = `${mode} · ${health.agents ?? 4} 个协作智能体`;
+    byId("system-status-text").textContent = `${mode} · ${health.agents ?? 6} 个协作智能体`;
     status.classList.add("online");
   } catch {
     byId("system-status-text").textContent = "服务状态暂不可用";
@@ -245,13 +302,21 @@ byId("research-form").addEventListener("submit", async (event) => {
   submit.disabled = true;
   submit.setAttribute("aria-busy", "true");
   buttonLabel.textContent = "智能体正在协作";
-  setStatus(status, "正在多源检索文献、设计实验、分析证据并进行规范复核…");
+  setStatus(status, "正在上传可选数据、检索文献、设计实验、综合证据并进行规范复核…");
 
   try {
     const constraints = byId("constraints").value
       .split(/\r?\n/)
       .map((item) => item.trim())
       .filter(Boolean);
+    const file = byId("dataset-file").files[0];
+    const dataset = file ? await uploadDataset(file) : null;
+    const outcome = byId("dataset-outcome").value.trim();
+    const exposures = splitFields(byId("dataset-exposures").value);
+    const covariates = splitFields(byId("dataset-covariates").value);
+    if (file && (!outcome || exposures.length === 0)) {
+      throw new Error("上传数据集时请填写结局变量和至少一个暴露变量");
+    }
     const payload = {
       question: byId("question").value.trim(),
       objective: byId("objective").value.trim(),
@@ -259,6 +324,8 @@ byId("research-form").addEventListener("submit", async (event) => {
       max_literature_results: Number(byId("max-results").value),
       documents: [],
       constraints,
+      dataset,
+      analysis_spec: dataset ? { outcome, exposures, covariates, design: "user-specified" } : null,
     };
     const response = await fetch("/research/run", {
       method: "POST",
@@ -267,13 +334,13 @@ byId("research-form").addEventListener("submit", async (event) => {
     });
     const report = await readJson(response);
     renderReport(report);
-    setStatus(status, "四智能体闭环执行完成", "success");
+    setStatus(status, "多智能体科研闭环执行完成", "success");
   } catch (error) {
     setStatus(status, errorMessage(error), "error");
   } finally {
     submit.disabled = false;
     submit.removeAttribute("aria-busy");
-    buttonLabel.textContent = "运行四智能体协作";
+    buttonLabel.textContent = "运行科研协作";
   }
 });
 

@@ -4,6 +4,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, AsyncIterator
+from urllib.parse import unquote
 
 import httpx
 import uvicorn
@@ -12,7 +13,7 @@ from acps_sdk.aip.aip_peer_cert import (
     AipPeerCertificateMiddleware,
 )
 from acps_sdk.aip.aip_rpc_server import add_aip_rpc_router
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -31,6 +32,11 @@ from .registry import (
 )
 from .schemas import ResearchReport, ResearchRequest
 from .tls import build_server_ssl_context
+from . import __version__
+from .artifacts import ArtifactError, LocalArtifactStore
+from .persistence import RunStore
+from .routing import CandidateHealthTracker
+from .schemas import DatasetArtifactRef
 
 
 WEB_ROOT = Path(__file__).with_name("web")
@@ -60,12 +66,22 @@ def create_app(
 
     app = FastAPI(
         title="基于多智能体协作的一站式科研助理平台",
-        version="0.6.0",
+        version=__version__,
         description="AIP Direct RPC minimal loop for research collaboration.",
         lifespan=lifespan,
     )
     app.state.partner_transport_factory = None
     app.state.amp_runtime = amp_runtime
+    app.state.run_store = (
+        RunStore(resolved_settings.state_database)
+        if resolved_settings.persistence_enabled
+        else RunStore.disabled()
+    )
+    app.state.health_tracker = CandidateHealthTracker(
+        failure_threshold=resolved_settings.routing_failure_threshold,
+        cooldown_seconds=resolved_settings.routing_cooldown_seconds,
+    )
+    app.state.artifact_store = LocalArtifactStore()
     if resolved_settings.identity_binding_enabled:
         app.add_middleware(AipPeerCertificateMiddleware)
     app.mount("/assets", StaticFiles(directory=WEB_ROOT), name="assets")
@@ -77,6 +93,8 @@ def create_app(
             transport_factory=app.state.partner_transport_factory,
             settings=resolved_settings,
             amp_runtime=amp_runtime,
+            run_store=app.state.run_store,
+            health_tracker=app.state.health_tracker,
         )
 
     async def leader_processor(payload: dict[str, Any]) -> dict[str, Any]:
@@ -122,6 +140,10 @@ def create_app(
             "identity_binding": resolved_settings.identity_binding_enabled,
             "discovery": "adp" if resolved_settings.discovery_url else "local",
             "agents": len(resolved_registry.list_agents()),
+            "amp": amp_runtime.status(),
+            "persistence": app.state.run_store.enabled,
+            "dataset_analysis": resolved_settings.dataset_analysis_enabled,
+            "evidence_synthesis": resolved_settings.evidence_synthesis_enabled,
         }
 
     @app.get("/acs")
@@ -131,6 +153,51 @@ def create_app(
             settings=resolved_settings,
             endpoint=resolved_settings.endpoint_for("leader", 8000),
         )
+
+    @app.post("/artifacts/datasets", response_model=DatasetArtifactRef)
+    async def upload_dataset(
+        request: Request,
+        x_filename: str = Header(..., alias="X-Filename"),
+    ) -> DatasetArtifactRef:
+        content_length = request.headers.get("content-length")
+        if content_length:
+            try:
+                declared_size = int(content_length)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="invalid Content-Length") from exc
+            if declared_size > 25 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="dataset is too large")
+        chunks: list[bytes] = []
+        received = 0
+        async for chunk in request.stream():
+            received += len(chunk)
+            if received > 25 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="dataset is too large")
+            chunks.append(chunk)
+        data = b"".join(chunks)
+        try:
+            return app.state.artifact_store.save_dataset(
+                data,
+                filename=unquote(x_filename),
+                media_type=request.headers.get(
+                    "content-type", "application/octet-stream"
+                ),
+            )
+        except ArtifactError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/research/runs/{session_id}")
+    async def get_run(session_id: str) -> dict[str, Any]:
+        if not app.state.run_store.enabled:
+            raise HTTPException(status_code=404, detail="run persistence is disabled")
+        run = app.state.run_store.get_run(session_id)
+        if run is None:
+            raise HTTPException(status_code=404, detail="research run not found")
+        return run
+
+    @app.get("/metrics/research")
+    async def research_metrics() -> dict[str, Any]:
+        return app.state.run_store.metrics()
 
     @app.get("/dev/agents")
     async def list_agents() -> list[dict[str, object]]:

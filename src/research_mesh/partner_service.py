@@ -20,6 +20,7 @@ from .observability import AmpRuntime
 from .partners import PARTNER_SPECS, PartnerSpec, Processor, make_handlers
 from .registry import PARTNER_PORTS
 from .tls import build_server_ssl_context
+from . import __version__
 
 
 def get_partner_spec(slug: str) -> PartnerSpec:
@@ -58,7 +59,7 @@ def create_partner_app(
 
     app = FastAPI(
         title=f"Research Mesh - {spec.name}",
-        version="0.6.0",
+        version=__version__,
         description=f"Independent AIP Partner providing {spec.skill}.",
         lifespan=lifespan,
     )
@@ -83,6 +84,7 @@ def create_partner_app(
             "skill": spec.skill,
             "mode": resolved_settings.mode,
             "identity_binding": resolved_settings.identity_binding_enabled,
+            "amp": amp_runtime.status(),
         }
 
     @app.get("/acs")

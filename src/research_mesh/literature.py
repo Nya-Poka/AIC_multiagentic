@@ -27,6 +27,8 @@ from .retrieval_quality import (
     annotate_and_filter_records,
     build_search_intent,
 )
+from .fulltext import enrich_open_full_text
+from . import __version__
 from .schemas import ResearchRequest, SourceDocument
 
 
@@ -226,7 +228,7 @@ class CrossrefClient:
             headers={
                 "Accept": "application/json",
                 "User-Agent": (
-                    "ResearchMesh/0.6 "
+                    f"ResearchMesh/{__version__} "
                     "(https://github.com/Nya-Poka/AIC_multiagentic)"
                 ),
             },
@@ -312,7 +314,7 @@ class OpenAlexClient:
             base_url=self.base_url,
             path="/works",
             params=params,
-            headers={"Accept": "application/json", "User-Agent": "ResearchMesh/0.6"},
+            headers={"Accept": "application/json", "User-Agent": f"ResearchMesh/{__version__}"},
             timeout_seconds=self.timeout_seconds,
             retries=self.retries,
             transport=self.transport,
@@ -395,7 +397,7 @@ class SemanticScholarClient:
         )
 
     async def search(self, query: str, rows: int) -> ProviderSearchResult:
-        headers = {"Accept": "application/json", "User-Agent": "ResearchMesh/0.6"}
+        headers = {"Accept": "application/json", "User-Agent": f"ResearchMesh/{__version__}"}
         if self.api_key:
             headers["x-api-key"] = self.api_key
         payload = await _request_json(
@@ -1046,6 +1048,7 @@ async def search_literature(
         minimum=0.0,
     )
     auto_retry = _env_bool("RESEARCH_MESH_LITERATURE_AUTO_RETRY", True)
+    full_text_enabled = _env_bool("RESEARCH_MESH_FULLTEXT_ENABLED", False)
 
     cache_ttl = _env_int(
         "RESEARCH_MESH_LITERATURE_CACHE_TTL_SECONDS",
@@ -1063,6 +1066,7 @@ async def search_literature(
         minimum_ratio,
         tuple(provider.name for provider in providers),
         tuple(queries),
+        full_text_enabled,
     )
     cached = _CACHE.get(cache_key)
     if cache_ttl > 0 and cached and cached[0] >= time.monotonic():
@@ -1140,6 +1144,20 @@ async def search_literature(
     evidence = _merge_records(external_records + seed_records)
     for record in evidence:
         record.pop("_rrf_score", None)
+    full_text_status = await enrich_open_full_text(evidence, query=request.question)
+    if (
+        not quality_gate["passed"]
+        and not external_records
+        and len(seed_records) >= rows
+        and _env_bool("RESEARCH_MESH_ALLOW_SEED_ONLY", False)
+    ):
+        quality_gate = {
+            **quality_gate,
+            "passed": True,
+            "relevant_count": len(seed_records),
+            "required_count": rows,
+            "basis": "user-provided-seed-records",
+        }
 
     source_statuses = [status for _records, status in provider_runs]
     available = sum(status["status"] != "unavailable" for status in source_statuses)
@@ -1180,6 +1198,10 @@ async def search_literature(
     if not quality_gate["passed"]:
         limitations.append(
             "主题相关证据未达到质量门禁，结果不得用于形成确定性结论。"
+        )
+    elif quality_gate.get("basis") == "user-provided-seed-records":
+        limitations.append(
+            "外部检索不可用；质量门禁仅依据用户提供的种子记录通过，正式结论仍需人工核验。"
         )
 
     result = {
@@ -1238,6 +1260,7 @@ async def search_literature(
             "sources": source_statuses,
         },
         "limitations": limitations,
+        "full_text_retrieval": full_text_status,
     }
     if aggregate_status != "unavailable" and cache_ttl > 0:
         _CACHE[cache_key] = (

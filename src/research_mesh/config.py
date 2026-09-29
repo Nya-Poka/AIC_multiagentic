@@ -12,7 +12,14 @@ class PlatformConfigurationError(RuntimeError):
     """Raised when platform mode would start without a trusted identity boundary."""
 
 
-PARTNER_SLUGS = ("literature", "experiment", "analysis", "review")
+PARTNER_SLUGS = (
+    "literature",
+    "experiment",
+    "analysis",
+    "dataset",
+    "synthesis",
+    "review",
+)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -39,6 +46,21 @@ def _env_float(name: str, default: float) -> float:
         raise PlatformConfigurationError(f"{name} must be a number") from exc
     if parsed <= 0:
         raise PlatformConfigurationError(f"{name} must be greater than zero")
+    return parsed
+
+
+def _env_int(name: str, default: int, *, minimum: int = 1) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise PlatformConfigurationError(f"{name} must be an integer") from exc
+    if parsed < minimum:
+        raise PlatformConfigurationError(
+            f"{name} must be greater than or equal to {minimum}"
+        )
     return parsed
 
 
@@ -100,6 +122,13 @@ class RuntimeSettings:
     amp_log_dir: Path
     amp_heartbeat_interval_seconds: float
     public_base_url: str
+    persistence_enabled: bool
+    state_database: Path
+    routing_max_candidates: int
+    routing_failure_threshold: int
+    routing_cooldown_seconds: float
+    evidence_synthesis_enabled: bool
+    dataset_analysis_enabled: bool
 
     @classmethod
     def from_env(cls) -> "RuntimeSettings":
@@ -133,6 +162,30 @@ class RuntimeSettings:
                 "RESEARCH_MESH_AMP_HEARTBEAT_INTERVAL_SECONDS", 30.0
             ),
             public_base_url=os.getenv("RESEARCH_MESH_PUBLIC_BASE_URL", "").strip().rstrip("/"),
+            persistence_enabled=_env_bool(
+                "RESEARCH_MESH_PERSISTENCE_ENABLED", platform
+            ),
+            state_database=Path(
+                os.getenv(
+                    "RESEARCH_MESH_STATE_DATABASE",
+                    "artifacts/state/research-mesh.sqlite3",
+                )
+            ).expanduser(),
+            routing_max_candidates=_env_int(
+                "RESEARCH_MESH_ROUTING_MAX_CANDIDATES", 3
+            ),
+            routing_failure_threshold=_env_int(
+                "RESEARCH_MESH_ROUTING_FAILURE_THRESHOLD", 2
+            ),
+            routing_cooldown_seconds=_env_float(
+                "RESEARCH_MESH_ROUTING_COOLDOWN_SECONDS", 60.0
+            ),
+            evidence_synthesis_enabled=_env_bool(
+                "RESEARCH_MESH_EVIDENCE_SYNTHESIS_ENABLED", not platform
+            ),
+            dataset_analysis_enabled=_env_bool(
+                "RESEARCH_MESH_DATASET_ANALYSIS_ENABLED", not platform
+            ),
         )
 
     def aic_for(self, slug: str) -> str:

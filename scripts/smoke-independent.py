@@ -8,16 +8,21 @@ from pathlib import Path
 
 import httpx
 
-from research_mesh.sample_data import sample_request
-
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+
+from research_mesh.sample_data import sample_request  # noqa: E402
+
+
 PYTHON = ROOT / ".venv" / "Scripts" / "python.exe"
 SERVICES = {
     "literature": 8011,
     "experiment": 8012,
     "analysis": 8013,
     "review": 8014,
+    "dataset": 8015,
+    "synthesis": 8016,
 }
 
 
@@ -38,6 +43,14 @@ def main() -> None:
     env = os.environ.copy()
     env["PYTHONPATH"] = str(ROOT / "src")
     env["PYTHONUTF8"] = "1"
+    env["RESEARCH_MESH_MODE"] = "local"
+    env["RESEARCH_MESH_IDENTITY_BINDING"] = "false"
+    env["RESEARCH_MESH_MTLS_ENABLED"] = "false"
+    env["RESEARCH_MESH_DISCOVERY_URL"] = ""
+    env["RESEARCH_MESH_EVIDENCE_SYNTHESIS_ENABLED"] = "true"
+    env["RESEARCH_MESH_DATASET_ANALYSIS_ENABLED"] = "true"
+    env["RESEARCH_MESH_PERSISTENCE_ENABLED"] = "false"
+    env["RESEARCH_MESH_ALLOW_SEED_ONLY"] = "true"
     creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     processes: list[subprocess.Popen] = []
     try:
@@ -115,17 +128,21 @@ def main() -> None:
         llm_health = httpx.get("http://127.0.0.1:8020/health", timeout=3).json()
         assert llm_health["status"] == "disabled"
 
+        request = sample_request().model_copy(update={"max_literature_results": 2})
         response = httpx.post(
             "http://127.0.0.1:8000/research/run",
-            json=sample_request().model_dump(mode="json"),
+            json=request.model_dump(mode="json"),
             timeout=30,
         )
-        response.raise_for_status()
+        if response.status_code >= 400:
+            raise RuntimeError(
+                f"research loop failed with HTTP {response.status_code}: {response.text}"
+            )
         report = response.json()
         assert report["status"] == "completed"
-        assert len(report["provenance"]) == 4
+        assert len(report["provenance"]) == 5
         print(
-            "independent-process smoke: UI + 4 AIP calls + LLM gateway completed"
+            "independent-process smoke: UI + 5 AIP calls + LLM gateway completed"
         )
     finally:
         for process in reversed(processes):

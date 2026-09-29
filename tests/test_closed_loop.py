@@ -61,12 +61,13 @@ def test_full_research_loop_over_http_and_aip() -> None:
         assert report["analysis"]["provider_count"] == 1
         assert report["analysis"]["with_abstract"] == 2
         assert report["review"]["passed"] is True
-        assert len(report["provenance"]) == 4
+        assert len(report["provenance"]) == 5
         assert {event["final_state"] for event in report["provenance"]} == {"completed"}
         assert {event["agent_slug"] for event in report["provenance"]} == {
             "literature",
             "experiment",
             "analysis",
+            "synthesis",
             "review",
         }
 
@@ -91,8 +92,6 @@ def test_removed_numeric_dataset_is_rejected_by_leader_input_schema() -> None:
                 json=request,
             )
         assert response.status_code == 422
-        assert any(
-            error["loc"][-1] == "dataset" for error in response.json()["detail"]
-        )
+        assert any("dataset" in error["loc"] for error in response.json()["detail"])
 
     asyncio.run(scenario())

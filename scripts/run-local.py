@@ -13,6 +13,8 @@ PARTNERS = {
     "experiment": 8012,
     "analysis": 8013,
     "review": 8014,
+    "dataset": 8015,
+    "synthesis": 8016,
 }
 
 
@@ -41,6 +43,9 @@ def main() -> None:
     env["RESEARCH_MESH_IDENTITY_BINDING"] = "false"
     env["RESEARCH_MESH_MTLS_ENABLED"] = "false"
     env["RESEARCH_MESH_DISCOVERY_URL"] = ""
+    env["RESEARCH_MESH_EVIDENCE_SYNTHESIS_ENABLED"] = "true"
+    env["RESEARCH_MESH_DATASET_ANALYSIS_ENABLED"] = "true"
+    env["RESEARCH_MESH_PERSISTENCE_ENABLED"] = "false"
     env["RESEARCH_MESH_LEADER_AIC"] = "local.research-mesh.leader"
     env["RESEARCH_MESH_LEADER_URL"] = "http://127.0.0.1:8000/rpc"
     for slug, port in PARTNERS.items():
@@ -71,7 +76,7 @@ def main() -> None:
             )
         )
         print("Research Mesh is starting at http://127.0.0.1:8000/")
-        print("Press Ctrl+C to stop all six services.")
+        print("Press Ctrl+C to stop all eight services.")
         while all(process.poll() is None for process in processes):
             time.sleep(0.5)
         failed = next(process for process in processes if process.poll() is not None)

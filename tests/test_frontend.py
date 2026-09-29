@@ -20,7 +20,7 @@ def test_frontend_and_static_assets_are_served_without_browser_byok() -> None:
 
         assert page.status_code == 200
         assert 'id="research-form"' in page.text
-        assert "四个专业角色，一条完整链路" in page.text
+        assert "六个专业角色，一条完整链路" in page.text
         assert "llm-api-key" not in page.text
         assert "llm-form" not in page.text
         assert "API Key" not in page.text
@@ -42,7 +42,9 @@ def test_frontend_and_static_assets_are_served_without_browser_byok() -> None:
         assert "api_key" not in script.text
         assert "localStorage" not in script.text
         assert "parseNumbers" not in script.text
-        assert "dataset:" not in script.text
+        assert 'id="dataset-file"' in page.text
+        assert 'fetch("/artifacts/datasets"' in script.text
+        assert "dataset_analysis" in script.text
         assert "provider-status-list" in script.text
 
     asyncio.run(scenario())

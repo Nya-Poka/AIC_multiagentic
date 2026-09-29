@@ -19,7 +19,9 @@ from acps_sdk.aip.aip_rpc_server import CommandHandlers, DefaultHandlers, TaskMa
 
 from .experiment import experiment_plan_issues, generate_experiment_plan
 from .literature import search_literature
+from .dataset_analysis import analyze_dataset
 from .schemas import ResearchRequest
+from .synthesis import synthesize_evidence
 
 
 class PartnerInputError(ValueError):
@@ -316,6 +318,18 @@ def analysis_processor(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def dataset_processor(payload: dict[str, Any]) -> dict[str, Any]:
+    request = _request(payload)
+    if request.dataset is None:
+        raise PartnerInputError("dataset-analysis requires request.dataset")
+    return analyze_dataset(request.dataset, request.analysis_spec)
+
+
+def synthesis_processor(payload: dict[str, Any]) -> dict[str, Any]:
+    _request(payload)
+    return synthesize_evidence(payload)
+
+
 def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
     request = _request(payload)
     artifacts = payload.get("artifacts")
@@ -326,6 +340,8 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
     literature = artifacts.get("literature", {})
     experiment = artifacts.get("experiment", {})
     analysis = artifacts.get("analysis", {})
+    dataset_analysis = artifacts.get("dataset_analysis", {})
+    synthesis = artifacts.get("synthesis", {})
 
     if not literature.get("evidence"):
         findings.append({"severity": "error", "message": "缺少可追溯文献证据"})
@@ -361,6 +377,19 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
                 "message": f"仍有 {len(low_quality_evidence)} 条 D 级外部书目记录未被质量门禁过滤",
             }
         )
+    if request.dataset is not None:
+        if not isinstance(dataset_analysis, dict) or not dataset_analysis.get("row_count"):
+            findings.append(
+                {"severity": "error", "message": "请求包含数据集，但没有可复核的数据分析产物"}
+            )
+        elif dataset_analysis.get("reproducibility", {}).get("input_sha256") != request.dataset.sha256:
+            findings.append(
+                {"severity": "error", "message": "数据分析产物与输入数据集哈希不一致"}
+            )
+    if "synthesis" in artifacts and (
+        not isinstance(synthesis, dict) or not synthesis.get("evidence_matrix")
+    ):
+        findings.append({"severity": "error", "message": "缺少可追溯证据综合矩阵"})
     if not request.constraints:
         findings.append({"severity": "warning", "message": "尚未登记研究约束"})
 
@@ -383,6 +412,8 @@ def review_processor(payload: dict[str, Any]) -> dict[str, Any]:
             "reproducibility-and-ethics",
             "minimum-sample-warning",
             "constraint-registration",
+            "dataset-artifact-integrity",
+            "evidence-synthesis-presence",
         ],
         "decision": "revise" if has_errors else "accept-with-limitations",
     }
@@ -409,6 +440,20 @@ PARTNER_SPECS: tuple[PartnerSpec, ...] = (
         "证据分析智能体",
         "data-analysis",
         analysis_processor,
+    ),
+    PartnerSpec(
+        "dataset",
+        "local.research-mesh.dataset",
+        "科研数据分析智能体",
+        "dataset-analysis",
+        dataset_processor,
+    ),
+    PartnerSpec(
+        "synthesis",
+        "local.research-mesh.synthesis",
+        "证据综合智能体",
+        "evidence-synthesis",
+        synthesis_processor,
     ),
     PartnerSpec(
         "review",

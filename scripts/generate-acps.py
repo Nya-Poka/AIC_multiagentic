@@ -22,7 +22,7 @@ PORTS = {"leader": 8000, **PARTNER_PORTS}
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Generate five ACPs v02.02 ACS files for Registry submission."
+        description="Generate Research Mesh ACPs v02.02 ACS files for Registry submission."
     )
     parser.add_argument(
         "--base-url",

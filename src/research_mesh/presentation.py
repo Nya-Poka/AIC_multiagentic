@@ -22,6 +22,8 @@ def render_research_report(result: dict[str, Any]) -> str:
     literature = report.literature
     experiment = report.experiment
     analysis = report.analysis
+    dataset_analysis = report.dataset_analysis
+    synthesis = report.synthesis
     review = report.review
 
     lines = [
@@ -107,6 +109,45 @@ def render_research_report(result: dict[str, Any]) -> str:
             f"- 平均来源质量：{(analysis.get('evidence_quality') or {}).get('mean_source_quality_score', '未评分')}",
             f"- 来源质量等级：{(analysis.get('evidence_quality') or {}).get('source_quality_tiers', {})}",
             f"- 去除重复候选：{((analysis.get('evidence_quality') or {}).get('deduplication') or {}).get('duplicate_records_removed', 0)}",
+        ]
+    )
+    lines.extend(
+        [
+            "",
+            "## 证据综合",
+            f"- 证据矩阵记录数：{synthesis.get('record_count', 0)}",
+            f"- 开放全文片段支持记录：{synthesis.get('full_text_supported_records', 0)}",
+            f"- 摘要支持记录：{synthesis.get('abstract_supported_records', 0)}",
+            f"- 范围性确定性提示：{synthesis.get('certainty', '未评估')}",
+        ]
+    )
+    conclusion = str(synthesis.get("conclusion") or "").strip()
+    if conclusion:
+        lines.append(f"- 综合说明：{conclusion}")
+    if dataset_analysis:
+        lines.extend(
+            [
+                "",
+                "## 科研数据分析",
+                f"- 数据行数：{dataset_analysis.get('row_count', 0)}",
+                f"- 字段数：{dataset_analysis.get('column_count', 0)}",
+                f"- 输入哈希：{(dataset_analysis.get('reproducibility') or {}).get('input_sha256', '未记录')}",
+            ]
+        )
+        associations = dataset_analysis.get("associations", [])
+        if isinstance(associations, list):
+            for association in associations:
+                if not isinstance(association, dict):
+                    continue
+                result = association.get("result") or {}
+                lines.append(
+                    "- 关联："
+                    f"{association.get('exposure')} → {association.get('outcome')}，"
+                    f"r={result.get('pearson_r', '不可计算')}，"
+                    f"95% CI={result.get('confidence_interval_95', '不可计算')}"
+                )
+    lines.extend(
+        [
             "",
             "## 方法与规范复核",
             f"**复核结论：** {review.get('decision', '未提供')}（"

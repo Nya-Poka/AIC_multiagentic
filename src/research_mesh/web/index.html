@@ -43,7 +43,7 @@
     <section class="workflow" aria-labelledby="workflow-title">
       <div class="section-label">
         <p>工作流</p>
-        <h2 id="workflow-title">四个专业角色，一条完整链路</h2>
+        <h2 id="workflow-title">六个专业角色，一条完整链路</h2>
       </div>
       <ol class="workflow-list">
         <li><span>01</span><strong>多源文献证据</strong><p>并行检索 Crossref、OpenAlex 与 Semantic Scholar。</p></li>
@@ -105,13 +105,40 @@
           </div>
         </fieldset>
 
+        <fieldset class="form-section">
+          <legend><span>04</span> 可选科研数据</legend>
+          <div class="fields">
+            <label class="field field-wide">
+              <span>数据文件</span>
+              <input id="dataset-file" type="file" accept=".csv,.json,.xlsx,text/csv,application/json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+              <small>文件只保存到服务器受控工件目录，不会发送给外部模型。最大 10 MB；支持 CSV、JSON 和 XLSX。</small>
+            </label>
+          </div>
+          <div class="fields fields-search">
+            <label class="field">
+              <span>结局变量</span>
+              <input id="dataset-outcome" placeholder="例如 exam_score">
+            </label>
+            <label class="field">
+              <span>暴露变量</span>
+              <input id="dataset-exposures" placeholder="例如 sleep_duration，多个字段用逗号分隔">
+            </label>
+          </div>
+          <div class="fields">
+            <label class="field field-wide">
+              <span>协变量</span>
+              <input id="dataset-covariates" placeholder="例如 baseline_gpa, grade, caffeine">
+            </label>
+          </div>
+        </fieldset>
+
         <div class="submit-bar">
           <div>
             <p class="submit-title">准备好后启动完整闭环</p>
             <p id="research-status" class="status" role="status" aria-live="polite">无需输入具体数值，等待提交研究问题</p>
           </div>
           <button id="research-submit" class="primary" type="submit">
-            <span class="button-label">运行四智能体协作</span>
+            <span class="button-label">运行科研协作</span>
             <span aria-hidden="true">→</span>
           </button>
         </div>
